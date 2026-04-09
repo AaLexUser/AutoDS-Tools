@@ -84,7 +84,7 @@ class AutoDSAgent(BaseAgent):
         tools = [
             CodeBlocksTool(timeout=60 * 60),  # 1 hour
             LibQTool(),
-            SubmitTool(validate_imports=self.agent_config.validate_submission_imports),
+            SubmitTool(),
         ]
         return Toolkit(*tools)
 

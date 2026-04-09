@@ -222,7 +222,6 @@ agents:
     planner_steps: 5      # Steps for Manager/Planner agent (0 = skip)
     debugger_steps: 5     # Steps for Debugger agent (0 = skip)
     presenter_steps: 5    # Steps for Presenter agent
-    validate_submission_imports: false
 ```
 
 ### Environment Variable Substitution

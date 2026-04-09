@@ -153,10 +153,6 @@ class AutoDSAgentConfig(AgentConfig):
     Config for the AutoDS agent.
     """
 
-    validate_submission_imports: bool = Field(
-        default=False,
-        description="Validate that submission code imports required AutoML libraries",
-    )
     analyst_steps: int = Field(default=0)
     researcher_steps: int = Field(default=0)
     planner_steps: int = Field(default=0)

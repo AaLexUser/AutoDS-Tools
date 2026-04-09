@@ -2,9 +2,6 @@ agents:
     autods:
         model: autods_model
         max_steps: 200
-        # Validate that submission code imports required AutoML libraries
-        # (tsururu, replay, plts, lightautoml, or pyboost)
-        validate_submission_imports: false
         analyst_steps: 5
         researcher_steps: 5
         planner_steps: 5
