@@ -7,44 +7,22 @@ including kernel specification building and kernel manager functionality.
 import asyncio
 import inspect
 import logging
+import os
 from pathlib import Path
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 from nbclient.client import KernelClient, KernelManager
 
-from autods.environments.python_env import PythonVirtualEnvironment
-
 logger = logging.getLogger(__name__)
-
-
-class KernelSpecBuilder:
-    """Builds kernel specifications for different environments."""
-
-    @staticmethod
-    def create_kernel_spec(python_env: Optional[PythonVirtualEnvironment]):
-        """Create a kernel spec for the given Python environment."""
-        if python_env is None:
-            return None
-
-        from jupyter_client.kernelspec import KernelSpec
-
-        venv_python = str(python_env.python_path)
-        return KernelSpec(
-            argv=[venv_python, "-m", "ipykernel_launcher", "-f", "{connection_file}"],
-            display_name="Python (AutoDS)",
-            language="python",
-            env={},
-            resource_dir="",
-        )
 
 
 class KernelManagement:
     """Manages Jupyter kernel lifecycle and communication."""
 
-    def __init__(self, python_env: Optional[PythonVirtualEnvironment] = None):
+    def __init__(self, env_vars: dict[str, str] | None = None):
         self.km: Optional[KernelManager] = None
         self.kc: Optional[KernelClient] = None
-        self.python_env = python_env
+        self._env_vars = env_vars
         self.workspace: Optional[Path] = None
 
     async def init(self, workspace: Path) -> None:
@@ -59,15 +37,13 @@ class KernelManagement:
 
         self.km = KernelManager(kernel_name="python3")
 
-        # Set custom kernel spec if using virtual environment
-        kspec = KernelSpecBuilder.create_kernel_spec(self.python_env)
+        kspec = self._build_kernel_spec()
         if kspec is not None:
             setattr(self.km, "_kernel_spec", kspec)
 
-        # Start the kernel
         start_kwargs: dict[str, Any] = {"cwd": str(workspace)}
-        if self.python_env is not None:
-            start_kwargs["env"] = dict(self.python_env.env_vars)
+        if self._env_vars is not None:
+            start_kwargs["env"] = dict(self._env_vars)
 
         self._log_kernel_command()
         self.km.start_kernel(**start_kwargs)
@@ -80,20 +56,24 @@ class KernelManagement:
         if hasattr(self.km, "kernel_id"):
             logger.debug(f"Kernel started with ID: {self.km.kernel_id}")
 
-    def _log_kernel_command(self) -> None:
-        """Log the kernel command for debugging."""
-        try:
-            cmd = cast(Any, self.km).kernel_cmd
-        except Exception:
-            cmd = None
+    def _build_kernel_spec(self):
+        if not self._env_vars or "VIRTUAL_ENV" not in self._env_vars:
+            return None
+        from jupyter_client.kernelspec import KernelSpec
 
-        if not cmd and getattr(self.km, "kernel_spec", None) is not None:
-            try:
-                cmd = self.km.kernel_spec.argv  # type: ignore[attr-defined,union-attr]
-            except Exception:
-                cmd = None
-
-        logger.debug(f"Starting kernel with command: {cmd}")
+        venv_dir = Path(self._env_vars["VIRTUAL_ENV"])
+        python = str(
+            venv_dir
+            / ("Scripts" if os.name == "nt" else "bin")
+            / ("python.exe" if os.name == "nt" else "python")
+        )
+        return KernelSpec(
+            argv=[python, "-m", "ipykernel_launcher", "-f", "{connection_file}"],
+            display_name="Python (AutoDS)",
+            language="python",
+            env={},
+            resource_dir="",
+        )
 
     async def terminate(self) -> None:
         """Terminate the running kernel and clean up resources."""

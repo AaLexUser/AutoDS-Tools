@@ -3,7 +3,7 @@ import time
 from langchain_core.messages import BaseMessage
 from pydantic import BaseModel, ConfigDict, Field
 
-from autods.tools.v2.toolkit_v2 import Toolkit
+from autods.tools.toolkit import Toolkit
 from autods.utils.llm_client import LLMClient
 
 

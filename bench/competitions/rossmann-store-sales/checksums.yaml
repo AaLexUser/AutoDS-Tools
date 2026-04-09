@@ -1,8 +1,0 @@
-private:
-  answers.csv: a3086eefe3131436d7d56ba4877f622c
-public:
-  sample_submission.csv: ad84e2fcd706300fbbd9b0780360b98a
-  store.csv: df7d8916bcd9fe2c0655398312f6fe57
-  test.csv: 1ca211058851fda3ae2deb878c43cf3e
-  train.csv: 58bea4062c86d55493142560dfc45ce1
-zip: 7a2e00e03c902de75d940f31f50368ec

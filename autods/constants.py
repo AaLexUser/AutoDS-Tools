@@ -28,8 +28,8 @@ REPO_STORAGE = AUTODS_HOME / "repos"
 MULTI_TOOL_ERROR = (
     "Multiple tool calls detected. Only ONE tool call is permitted per turn."
 )
-TOOLS_NOT_FOUND_ERROR = (
-    lambda tools: f"Tool calls not found. Be ACTIVE and use the tools. Available tools: {tools}"
+TOOLS_NOT_FOUND_ERROR = lambda tools: (
+    f"Tool calls not found. Be ACTIVE and use the tools. Available tools: {tools}"
 )
 
 # Project Folder

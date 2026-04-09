@@ -47,8 +47,8 @@ def _get_executor(context: Any) -> JupyterExecutor:
     project_path = Path(getattr(context, "project_path", Path.cwd()))
     project_path.mkdir(parents=True, exist_ok=True)
 
-    python_env = getattr(context, "python_env", None)
-    executor = JupyterExecutor(workspace=project_path, python_env=python_env)
+    env_vars = getattr(context, "python_env", None)
+    executor = JupyterExecutor(workspace=project_path, env_vars=env_vars)
     try:
         context.jupyter_executor = executor  # type: ignore[attr-defined]
     except (AttributeError, TypeError):

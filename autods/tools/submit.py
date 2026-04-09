@@ -6,7 +6,6 @@ from pydantic import Field
 
 from autods.prompting.prompt_store import prompt_store
 from autods.tools.base import BaseTool, ToolError
-from autods.validation import validate_automl_imports
 
 
 class SubmitTool(BaseTool):
@@ -53,15 +52,6 @@ class SubmitTool(BaseTool):
             resolved_path = Path(project_path) / code_path
             if not resolved_path.is_absolute():
                 resolved_path = resolved_path.resolve()
-
-            # Validate imports
-            is_valid, error_msg = validate_automl_imports(str(resolved_path))
-            if not is_valid:
-                raise ToolError(
-                    f"Code validation failed:\n{error_msg}\n\n"
-                    "Please ensure your solution file imports at least one of the required "
-                    "AutoML libraries: tsururu, replay, plts, lightautoml, or pyboost."
-                )
 
         # Format success message
         result = f"Task completed successfully.\n\n{summary.strip()}"

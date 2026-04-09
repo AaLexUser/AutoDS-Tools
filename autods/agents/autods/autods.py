@@ -20,7 +20,7 @@ from autods.constants import (
     AUTO_DS_AGENT,
     RESEARCHER_REPORT_PATH,
 )
-from autods.environments.python_env import PythonVirtualEnvironment, ensure_virtualenv
+from autods.environments.python_env import resolve_venv_env
 from autods.environments.sandbox import LocalSandboxAdapter
 from autods.prompting.prompt_generator import (
     AnalystPromptGenerator,
@@ -39,10 +39,10 @@ from autods.task_inference.autods import (
     Think,
 )
 from autods.tools.base import BaseTool
-from autods.tools.v2.codeblocks import CodeBlocksTool
-from autods.tools.v2.libq import LibQTool
-from autods.tools.v2.submit import SubmitTool
-from autods.tools.v2.toolkit_v2 import Toolkit
+from autods.tools.codeblocks import CodeBlocksTool
+from autods.tools.libq import LibQTool
+from autods.tools.submit import SubmitTool
+from autods.tools.toolkit import Toolkit
 from autods.utils.config import AutoDSAgentConfig, Config
 from autods.utils.llm_client import LLMClient
 
@@ -52,7 +52,6 @@ class AutoDSAgent(BaseAgent):
         self,
         app_config: Config,
         project_path: Optional[str] = None,
-        python_env: PythonVirtualEnvironment | None = None,
     ):
         super().__init__(app_config)
         start_time = time.perf_counter()
@@ -63,10 +62,12 @@ class AutoDSAgent(BaseAgent):
 
         self.llm = LLMClient(self.agent_config.model)
         self.max_steps = self.agent_config.max_steps or 50
+
+        resolved_path = Path(project_path or os.getcwd())
+        venv_env = resolve_venv_env(resolved_path)
+
         self.sandbox = LocalSandboxAdapter()
-        if python_env is None:
-            python_env = ensure_virtualenv(Path(project_path or ""))
-        self.sandbox.update_environment(extra_env=python_env.env_vars)
+        self.sandbox.update_environment(extra_env=venv_env)
 
         self.toolkit = self.create_autods_toolkit()
         self.context = AutoDSContext(
@@ -74,8 +75,8 @@ class AutoDSAgent(BaseAgent):
             toolkit=self.toolkit,
             config=app_config,
             sandbox=self.sandbox,
-            project_path=project_path or os.getcwd(),
-            python_env=python_env,
+            python_env=venv_env,
+            project_path=str(resolved_path),
             start_time=start_time,
         )
 

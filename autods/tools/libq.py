@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from autods.grad import grad
+import pygrad as pg
+
 from autods.prompting.prompt_store import prompt_store
 from autods.tools.base import BaseTool, ToolError
 
@@ -22,4 +23,4 @@ class LibQTool(BaseTool):
             raise ToolError(
                 "Parameter 'query' is required and must be a non-empty string."
             )
-        return await grad.ask(url, query)
+        return await pg.search(url, query)

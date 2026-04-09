@@ -8,10 +8,10 @@ from langchain_core.messages import HumanMessage
 from langgraph.runtime import get_runtime
 
 from autods.prompting.prompt_store import prompt_store
+from autods.tools._lark_codeblocks import parse_fenced_blocks
 from autods.tools.base import BaseTool, ToolError
-from autods.tools.v2._lark_codeblocks import parse_fenced_blocks
-from autods.tools.v2.ipython import IPythonTool
-from autods.tools.v2.shell import ShellTool
+from autods.tools.ipython import IPythonTool
+from autods.tools.shell import ShellTool
 from autods.utils.parsers import parse_json
 
 Lang = Literal["python", "bash"]
@@ -31,53 +31,6 @@ def parse_code_blocks(text: str) -> list[CodeBlock]:
         CodeBlock(index=i, lang=lang, code=code)
         for i, (lang, code) in enumerate(pairs, start=1)
     ]
-
-
-def _is_language_header(h: str) -> bool:
-    """Check if header is a language keyword."""
-    tag = (h or "").strip().lower()
-    return tag in {"python", "py", "bash", "sh", "shell", "zsh"}
-
-
-def _is_file_header(h: str) -> bool:
-    """Check if header looks like a file path."""
-    if not h or _is_language_header(h):
-        return False
-    # Accept headers that look like filesystem paths or filenames.
-    return any(ch in h for ch in ("/", "\\", ".")) and not h.strip().endswith(":")
-
-
-def _detect_file_path_comment(code: str) -> str | None:
-    """Extract file path from first line comment in Python code.
-
-    Returns the file path if first line is '# path/to/file.ext', else None.
-    """
-    lines = code.splitlines()
-    if not lines:
-        return None
-
-    first_line = lines[0].strip()
-    if not first_line.startswith("#"):
-        return None
-
-    # Extract text after '#' and strip whitespace
-    path_candidate = first_line[1:].strip()
-
-    # Validate as file path
-    return path_candidate if _is_file_header(path_candidate) else None
-
-
-def _validate_file_path(path_str: str, base_cwd: Path) -> Path:
-    """Resolve and validate file path is within project directory."""
-    path = Path(path_str)
-    target = path.resolve() if path.is_absolute() else (base_cwd / path).resolve()
-
-    try:
-        target.relative_to(base_cwd)
-    except ValueError:
-        raise ToolError(f"Invalid path: {path_str} escapes project directory")
-
-    return target
 
 
 def _collect_human_text(msg: HumanMessage) -> str:
@@ -101,77 +54,10 @@ def _get_base_cwd() -> Path:
     return Path(getattr(context, "project_path", Path.cwd())) if context else Path.cwd()
 
 
-def _get_relative_path(path: Path, base_cwd: Path) -> str:
-    """Get relative path string for display."""
-    return (
-        str(path.relative_to(base_cwd)) if path.is_relative_to(base_cwd) else str(path)
-    )
-
-
-async def _handle_file_operation(blk: CodeBlock, base_cwd: Path) -> str | None:
-    """Handle file creation operations from Python code blocks."""
-    from autods.tools.v2._apply_patch_model import Add
-    from autods.tools.v2.apply_patch import _apply_add
-
-    if blk.file:
-        file_path_str = blk.file
-    else:
-        detected_path = _detect_file_path_comment(blk.code)
-        if not detected_path:
-            return None
-        file_path_str = detected_path
-        lines = blk.code.splitlines()
-        blk.code = "\n".join(lines[1:])  # Skip first line comment
-
-    validated_path = _validate_file_path(file_path_str, base_cwd)
-    header = f">>> [{blk.lang} #{blk.index}]"
-    rel_path = _get_relative_path(validated_path, base_cwd)
-
-    # Create new file
-    add = Add(path=validated_path, content=blk.code)
-    _apply_add(add)
-    result = f"{header}\nFile operation: A {rel_path}"
-
-    # Auto-execute Python or bash scripts
-    exec_result = await _auto_execute_file(validated_path)
-    if exec_result:
-        result += f"\n{exec_result}"
-
-    return result
-
-
-async def _auto_execute_file(path: Path) -> str | None:
-    """Auto-execute Python or bash script files."""
-    sh = ShellTool()
-
-    if path.suffix == ".py":
-        command = f"python {path}"
-    elif path.suffix in {".sh", ".bash"}:
-        command = f"bash {path}"
-    else:
-        return None
-
-    try:
-        raw = await sh.execute(arg=command)
-        # Handle both str and HumanMessage return types
-        if isinstance(raw, str):
-            payload = parse_json(raw) or {}
-            output = str(payload.get("output", "")).rstrip()
-        else:
-            output = _collect_human_text(raw).rstrip()
-        return f">>> [executed {path.name}]\n{output}".rstrip()
-    except Exception as e:
-        return f">>> [execution failed]\nERROR: {e}"
-
-
 async def _execute_python_block(
     blk: CodeBlock, base_cwd: Path, timeout: float | None = None
 ) -> str:
     """Execute a Python code block (file operation or IPython execution)."""
-    # Try file operation first
-    # file_result = await _handle_file_operation(blk, base_cwd)
-    # if file_result:
-    #     return file_result
 
     # Normal IPython execution
     ipy = IPythonTool(timeout=timeout)

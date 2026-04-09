@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage
 
 from autods.prompting.prompt_store import prompt_store
 from autods.tools.base import BaseTool, ToolError
-from autods.tools.v2.shell import ShellTool
+from autods.tools.shell import ShellTool
 
 
 class QuickPythonTool(BaseTool):

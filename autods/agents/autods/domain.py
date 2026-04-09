@@ -6,9 +6,8 @@ from pydantic import ConfigDict, Field
 
 from autods.agents.domain import BaseAgentState, BaseThinkActAgent
 from autods.environments.jupyter import JupyterExecutor
-from autods.environments.python_env import PythonVirtualEnvironment
 from autods.environments.sandbox import LocalSandboxAdapter
-from autods.tools.v2.toolkit_v2 import Toolkit
+from autods.tools.toolkit import Toolkit
 from autods.utils.config import Config
 from autods.utils.llm_client import LLMClient
 
@@ -31,6 +30,6 @@ class AutoDSContext(BaseThinkActAgent):
     project_path: str = Field(default_factory=os.getcwd)
     jupyter_executor: Optional[JupyterExecutor] = Field(default=None)
     sandbox: Optional[LocalSandboxAdapter] = Field(default=None)
-    python_env: Optional[PythonVirtualEnvironment] = Field(default=None)
+    python_env: Optional[Dict[str, str]] = Field(default=None)
     plan_state: Optional[Dict[str, Any]] = Field(default=None)
     start_time: float = Field(default_factory=lambda: time.perf_counter())

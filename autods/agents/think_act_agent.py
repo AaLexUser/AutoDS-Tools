@@ -10,7 +10,7 @@ from langgraph.types import Command
 from autods.agents.domain import BaseAgentState, BaseThinkActAgent
 from autods.prompting.prompt_generator import PromptGenerator
 from autods.task_inference.base import TaskInference
-from autods.tools.v2.toolkit_v2 import Toolkit
+from autods.tools.toolkit import Toolkit
 from autods.utils.parse_tools import parse_tools_from_message
 from autods.utils.system_resources import get_system_info
 

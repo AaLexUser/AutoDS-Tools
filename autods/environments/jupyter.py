@@ -68,7 +68,7 @@ class JupyterExecutor:
         self,
         workspace: Path,
         nb: Optional[NotebookNode] = None,
-        python_env: Optional[Any] = None,
+        env_vars: dict[str, str] | None = None,
     ):
         """
         Initialize a new JupyterExecutor instance.
@@ -84,14 +84,14 @@ class JupyterExecutor:
         self.nb = self._load_or_create_notebook(nb)
         self._notebook_replayed = not self._has_code_cells_to_replay()
 
-        self.kernel_manager = KernelManagement(python_env)
+        self.kernel_manager = KernelManagement(env_vars)
         from rich.console import Console
 
         self.console = Console()
         self.interaction: Literal["ipython", None] = (
             "ipython" if detect_ipython() else None
         )
-        self.python_env = python_env
+        self.env_vars = env_vars
 
         active_executors.append(self)
 

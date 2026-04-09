@@ -7,22 +7,6 @@ from autods.tools.base import BaseToolCall
 INVALID_TOOLS = {"thinking", "reasoning"}
 
 
-def _parse_markdown_codeblocks(
-    text: str, positions: List[Tuple[int, BaseToolCall]]
-) -> None:
-    """Extract markdown code blocks from text and add to positions list."""
-    code_block_pattern = re.compile(r"```(?P<lang>\w+)?\n(?P<code>.*?)\n```", re.DOTALL)
-
-    for match in code_block_pattern.finditer(text):
-        code = match.groupdict().get("code", "").strip()
-        if not code:
-            continue
-
-        lang = match.groupdict().get("lang")
-        tool_call = BaseToolCall(name="CodeBlock", params={"lang": lang, "code": code})
-        positions.append((match.start(), tool_call))
-
-
 def _parse_xml_tool_calls(text: str, positions: List[Tuple[int, BaseToolCall]]) -> None:
     """Extract XML-style tool calls from text and add to positions list."""
     tool_pattern = re.compile(

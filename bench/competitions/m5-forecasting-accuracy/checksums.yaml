@@ -1,8 +1,0 @@
-private:
-  answers.csv: 3dd3b62abb887af02d86fb70ca772e77
-public:
-  calendar.csv: 3ffeab2991b0c8e861d008b39ea4c95c
-  sales_train_evaluation.csv: 6642ca2996df6129145aa93a1860c5be
-  sample_submission.csv: 865f7ab6e196bfe003b4b6da97bb5482
-  sell_prices.csv: 08c591caa99e55daf3e0ccac913f7c85
-zip: 86f57416a314197f40a17cc6fc60cbb4
