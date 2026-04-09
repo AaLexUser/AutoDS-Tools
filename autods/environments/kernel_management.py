@@ -45,7 +45,6 @@ class KernelManagement:
         if self._env_vars is not None:
             start_kwargs["env"] = dict(self._env_vars)
 
-        self._log_kernel_command()
         self.km.start_kernel(**start_kwargs)
 
         # Create and start kernel client
