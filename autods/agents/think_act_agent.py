@@ -92,7 +92,7 @@ class Think(ThinkActAgent[StateT, ContextT]):
     async def _runnable(
         self, state: StateT, context: ContextT
     ) -> StateT | Command[Any]:
-        messages: list[BaseMessage] = cast(list[BaseMessage], state.messages)
+        messages: list[BaseMessage] = state.messages
 
         if _ORIGINAL_HISTORY_KEY not in self._shared:
             self._shared[_ORIGINAL_HISTORY_KEY] = messages.copy()
@@ -143,7 +143,7 @@ class Act(ThinkActAgent[StateT, ContextT]):
         self, state: StateT, artifact: str
     ) -> list[BaseMessage | RemoveMessage]:
         """Build the final message output when agent terminates."""
-        messages: list[BaseMessage] = cast(list[BaseMessage], state.messages)
+        messages: list[BaseMessage] = state.messages
         artifact_message = HumanMessage(content=artifact)
 
         # Restore initial messages index
@@ -192,7 +192,7 @@ class Act(ThinkActAgent[StateT, ContextT]):
     async def _runnable(
         self, state: StateT, context: ContextT
     ) -> StateT | Command[Any]:
-        messages: list[BaseMessage] = cast(list[BaseMessage], state.messages)
+        messages: list[BaseMessage] = state.messages
 
         self.set_initial_message_count(len(messages) - 1)
         self._step_count += 1
