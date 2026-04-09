@@ -316,12 +316,6 @@ class CancellationRegistry:
             self._events[session_id].set()
             return True
 
-    def is_cancelled(self, session_id: str) -> bool:
-        """Check if session was cancelled."""
-        with self._lock:
-            event = self._events.get(session_id)
-            return event.is_set() if event else False
-
     def is_running(self, session_id: str) -> bool:
         """Check if a session task is currently running."""
         with self._lock:
@@ -518,7 +512,6 @@ def create_app(agent_options: Optional[dict[str, Any]] = None) -> FastAPI:
             sender_task = asyncio.run_coroutine_threadsafe(_sender_loop(), main_loop)
 
             had_error = False
-            was_cancelled = False
             try:
                 await runner.astream(
                     task_request.task,
@@ -531,7 +524,6 @@ def create_app(agent_options: Optional[dict[str, Any]] = None) -> FastAPI:
                 logger.info("Task completed successfully for session %s", session.id)
 
             except asyncio.CancelledError:
-                was_cancelled = True
                 logger.info("Task cancelled by user for session %s", session.id)
                 _enqueue_message("status", "cancelled")
 

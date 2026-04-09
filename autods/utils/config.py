@@ -164,12 +164,6 @@ class AutoDSAgentConfig(AgentConfig):
     presenter_steps: int = Field(default=5)
 
 
-class DeepResearchAgentConfig(AgentConfig):
-    max_steps: int = Field(default=0)
-    max_browse_urls: int = Field(default=0)
-    max_content_tokens: int = Field(default=0)
-
-
 class Config(BaseModel):
     """
     Configuration class for agents, models and model providers.

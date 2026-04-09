@@ -19,7 +19,6 @@ from autods.prompting.prompt_generator import (
     AutoDSPromptGenerator,
     PlannerOneShotPromptGenerator,
 )
-from autods.prompting.prompt_store import prompt_store
 from autods.task_inference import TaskInference
 from autods.utils.parse_tools import parse_tools_from_message
 from autods.utils.system_resources import get_system_info
@@ -278,11 +277,3 @@ class OneShotAnalyst(AutoDSTaskInference):
         return Command(
             update={"messages": state.append_messages([AIMessage(content=report)])}
         )
-
-
-class OneShotResearcher(AutoDSTaskInference):
-    async def _runnable(
-        self, state: AutoDSState, context: AutoDSContext
-    ) -> AutoDSState | Command[Any]:
-        response = AIMessage(content=prompt_store.load("researcher_one_shot.md"))
-        return Command(update={"messages": state.append_messages([response])})

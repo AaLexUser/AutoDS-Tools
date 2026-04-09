@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 from pathlib import Path
@@ -145,31 +144,6 @@ class AgentRunner:
             executor = getattr(context, "jupyter_executor", None)
             if executor is not None:
                 await executor.terminate()
-
-    def shutdown(self) -> None:
-        """Synchronous wrapper to cleanup async resources."""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            loop.create_task(self._shutdown_async())
-            return
-
-        self._run_shutdown_in_new_loop()
-
-    def _run_shutdown_in_new_loop(self) -> None:
-        """Run shutdown in a new event loop if needed."""
-        try:
-            asyncio.run(self._shutdown_async())
-        except RuntimeError:
-            new_loop = asyncio.new_event_loop()
-            try:
-                asyncio.set_event_loop(new_loop)
-                new_loop.run_until_complete(self._shutdown_async())
-            finally:
-                new_loop.close()
 
     async def _safe_shutdown_on_error(self, exc: Exception) -> None:
         """Attempt to cleanup resources when an error occurs without masking the error.

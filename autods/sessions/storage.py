@@ -48,9 +48,6 @@ class SessionStorage:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def manifest_exists(self) -> bool:
-        return self.manifest_path.exists()
-
     def load_manifest(self) -> SessionManifest:
         with self._lock:
             if not self.manifest_path.exists():

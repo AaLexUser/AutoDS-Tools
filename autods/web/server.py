@@ -116,15 +116,3 @@ def start_web_servers(
             log(logging.ERROR, f"Ошибка: {e}")
             api_process.terminate()
             streamlit_process.terminate()
-
-
-def stop_web_servers(processes: tuple):
-    api_process, streamlit_process = processes
-    console.print("Остановка веб-серверов...")
-    if api_process.is_alive():
-        api_process.terminate()
-        api_process.join(timeout=5)
-    if streamlit_process.is_alive():
-        streamlit_process.terminate()
-        streamlit_process.join(timeout=5)
-    console.print("Серверы остановлены")

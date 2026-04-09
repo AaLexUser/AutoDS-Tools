@@ -214,32 +214,6 @@ class ResearcherPromptGenerator(PromptGenerator):
         )
 
 
-class PlannerPromptGenerator(PromptGenerator):
-    def __init__(
-        self, project_path: str, tools: list[BaseTool], steps_limit: int
-    ) -> None:
-        super().__init__()
-        self.project_path = project_path
-        self.tools: list[BaseTool] = tools
-        self.steps_limit = steps_limit
-
-    @property
-    def system_prompt(self) -> SystemMessage:
-        rules = prompt_store.load("planner.md")
-        tool_guidance = "\n\n---\n\n".join([tool.get_prompt() for tool in self.tools])
-        return SystemMessage(content="\n\n".join([rules, tool_guidance]))
-
-    @property
-    def user_prompt(self) -> HumanMessage:
-        return HumanMessage(
-            content=(
-                f"[Time]\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                f"[Project root path]\n{self.project_path}\n\n"
-                f"[STEPS LIMIT]\n{self.steps_limit}\n\n"
-            )
-        )
-
-
 class PlannerOneShotPromptGenerator(PromptGenerator):
     def __init__(self, project_path: str) -> None:
         super().__init__()

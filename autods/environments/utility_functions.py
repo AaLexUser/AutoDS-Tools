@@ -7,7 +7,6 @@ async helpers, text processing utilities, and display functions.
 import asyncio
 import base64
 import logging
-import re
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -72,26 +71,6 @@ def shutdown_all_kernels(active_executors: list):
                 loop.close()
         except Exception:
             pass  # Ignore errors during cleanup
-
-
-def filter_log_lines(input_str: str) -> str:
-    """Remove log and warning lines from the output string."""
-    delete_lines = ["[warning]", "warning:", "[cv]", "[info]"]
-    result = "\n".join(
-        [
-            line
-            for line in input_str.split("\n")
-            if not any(dl in line.lower() for dl in delete_lines)
-        ]
-    ).strip()
-    return result
-
-
-def strip_ansi_codes(input_str: str) -> str:
-    """Remove ANSI escape sequences and color codes from text output."""
-    pattern = re.compile(r"\x1b\[[0-9;]*[mK]")
-    result = pattern.sub("", input_str)
-    return result
 
 
 def detect_ipython() -> bool:

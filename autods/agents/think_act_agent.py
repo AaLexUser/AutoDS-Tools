@@ -4,7 +4,7 @@ import time
 from typing import Any, Callable, Generic, TypeVar, cast
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage
-from langgraph.graph import END, StateGraph
+from langgraph.graph import END
 from langgraph.types import Command
 
 from autods.agents.domain import BaseAgentState, BaseThinkActAgent
@@ -365,38 +365,3 @@ def create_think_act_agent(
     )
 
     return think_node.runnable, act_node.runnable
-
-
-def create_think_act_graph(
-    prompt_generator: PromptGenerator,
-    toolkit: Toolkit,
-    state_type: type[StateT],
-    context_type: type[ContextT],
-    max_steps: int = 50,
-    throw_history: bool = False,
-    verificate_fn: VerificationFn | None = None,
-    prefix: str = "",
-    next_node: str = END,
-    last_messages_cnt: int = -1,
-):
-    workflow = StateGraph(
-        state_type,
-        context_schema=context_type,
-    )
-    think_node, act_node = create_think_act_agent(
-        prompt_generator=prompt_generator,
-        toolkit=toolkit,
-        max_steps=max_steps,
-        throw_history=throw_history,
-        verificate_fn=verificate_fn,
-        state_type=state_type,
-        context_type=context_type,
-        prefix=prefix,
-        next_node=next_node,
-        last_messages_cnt=last_messages_cnt,
-    )
-    workflow.add_node(f"{prefix}think", think_node)
-    workflow.add_node(f"{prefix}act", act_node)
-    workflow.set_entry_point(f"{prefix}think")
-    workflow.add_edge(f"{prefix}act", f"{prefix}think")
-    return workflow.compile()

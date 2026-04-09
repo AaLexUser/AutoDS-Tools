@@ -34,9 +34,6 @@ class BaseAgentState(BaseModel):
     def get(self, key, default=None):
         return getattr(self, key, default)
 
-    def clear_messages(self):
-        self.messages = []
-
     def replace_messages(self, messages: list[BaseMessage]):
         self.messages = messages
 

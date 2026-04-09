@@ -5,7 +5,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 from uuid import UUID
 
 import yaml
@@ -38,12 +38,6 @@ class Tracer:
         if reset:
             self.file_path.write_text("", encoding="utf-8")
         self._lock = asyncio.Lock()
-        self._events: list[dict[str, Any]] = []
-
-    @property
-    def events(self) -> Iterable[dict[str, Any]]:
-        """In-memory view of captured events (useful for tests)."""
-        return tuple(self._events)
 
     async def tracing_callback(self, mode: str, chunk: Any) -> None:
         if mode != "updates":
@@ -53,7 +47,6 @@ class Tracer:
             "mode": mode,
             "data": data,
         }
-        self._events.append(event_payload)
         async with self._lock:
             await asyncio.to_thread(self._persist_event, event_payload)
 

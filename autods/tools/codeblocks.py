@@ -130,17 +130,10 @@ async def run_blocks(
     return "\n\n".join(output_parts).rstrip(), status
 
 
-async def run_message(text: str, timeout: float | None = None) -> str:
-    blocks = parse_code_blocks(text)
-    aggregated, _status = await run_blocks(blocks, timeout)
-    return aggregated
-
-
 class CodeBlocksTool(BaseTool):
     name: str = "CodeBlock"
     usage: str = '<CodeBlock lang="python">print("Hello, World!")</CodeBlock>'
     timeout: float | None = None
-    python_executor: Literal["jupyter", "bash"] = "jupyter"
 
     def get_prompt(self) -> str:
         return prompt_store.load("tools/codeblocks.md")
