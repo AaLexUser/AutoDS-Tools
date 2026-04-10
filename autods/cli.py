@@ -3,7 +3,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional, cast
+from typing import Any, Awaitable, Callable, Optional
 
 import click
 from dotenv import load_dotenv
@@ -20,7 +20,7 @@ from autods.callbacks.tracer import Tracer
 from autods.runtime.runner import AgentRunner
 from autods.sessions import SessionMetadata, SessionNotFoundError, SessionService
 from autods.utils.config import load_config
-from autods.web.server import start_web_servers
+from autods.web.server import start_web_server
 
 _ = load_dotenv()
 
@@ -432,121 +432,13 @@ def resume(session_id: Optional[str], **kwargs: Any):
     asyncio.run(_resume_session())
 
 
-@AgentCLIOptions.agent_options
-@common_options
-@cli.command()
-@click.argument("query", required=False)
-@click.option(
-    "--max-results", type=int, default=5, help="Maximum search results per query."
-)
-@click.option(
-    "--max-iterations", type=int, default=3, help="Maximum search-browse iterations."
-)
-def research(
-    query: str | None,
-    file_path: str | None,
-    max_results: int,
-    max_iterations: int,
-    **kwargs: Any,
-):
-    """
-    Perform comprehensive web research using the DeepResearch agent.
-
-    This command runs the DeepResearch agent directly, which performs iterative
-    search and browsing to gather information from multiple sources and synthesizes
-    a comprehensive answer with citations.
-
-    Examples:
-        autods research "What are the latest developments in quantum computing?"
-        autods research -f query.txt --max-iterations 5
-        autods research "Compare Python web frameworks" -o results.md
-    """
-    from langchain_core.messages import HumanMessage
-
-    from autods.agents.deep_research.deep_research import DeepResearchAgent
-
-    cli_opts = AgentCLIOptions.from_args(kwargs)
-
-    # Handle research query input
-    research_query = _handle_task_input(query, file_path)
-
-    # Load configuration
-    app_config = _load_app_config(cli_opts)
-
-    # Check if search service is configured
-    if app_config.search_service is None:
-        raise click.ClickException(
-            "Search service is not configured. DeepResearch requires web search.\n"
-            "Please configure search_service in your autods_config.yaml"
-        )
-
-    console.print(f"[blue]Research Query:[/blue] {research_query}")
-    console.print(
-        f"[blue]Parameters:[/blue] max_results={max_results}, "
-        f"max_iterations={max_iterations}\n"
-    )
-
-    recursion_limit = cli_opts.max_steps or 200
-
-    # Create DeepResearch agent
-    try:
-        agent = DeepResearchAgent(app_config)
-    except Exception as e:
-        console.print(f"[red]Failed to initialize DeepResearch agent:[/red] {e}")
-        traceback.print_exc()
-        sys.exit(1)
-
-    # Execute research
-    console.print("[yellow]Starting research...[/yellow]\n")
-
-    # Convert max_iterations to max_tool_calls (matches agent's parameter)
-    max_tool_calls = (
-        max_iterations * 10
-    )  # Rough conversion for multiple tool calls per iteration
-
-    async def _research_task():
-        result = await agent.runnable().ainvoke(
-            {
-                "messages": [HumanMessage(content=research_query)],
-                "tool_call_count": 0,
-                "max_tool_calls": max_tool_calls,
-            },
-            config={"recursion_limit": recursion_limit},
-            context=cast(Any, agent.context),
-        )
-
-        # Extract answer from final messages
-        messages = result.get("messages", [])
-        answer = agent._extract_final_answer(messages)
-
-        if not answer:
-            console.print(
-                "[yellow]Research completed but no answer was generated.[/yellow]"
-            )
-            return
-
-        # Display results
-        console.print("\n[green bold]Research Results:[/green bold]\n")
-        console.print(answer)
-
-    try:
-        asyncio.run(_research_task())
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Research interrupted by user[/yellow]")
-        sys.exit(1)
-    except Exception as e:
-        console.print(f"\n[red]Research failed:[/red] {e}")
-        traceback.print_exc()
-        sys.exit(1)
-
 
 @AgentCLIOptions.agent_options
 @cli.command()
 @click.option("--api-host", default="localhost", help="API server host")
 @click.option("--api-port", default=8000, type=int, help="API server port")
-@click.option("--streamlit-port", default=8501, type=int, help="Streamlit server port")
-@click.option("--background", is_flag=True, help="Run servers in background")
-def web(api_host: str, api_port: int, streamlit_port: int, background: bool, **kwargs):
+@click.option("--background", is_flag=True, help="Run API server in background")
+def web(api_host: str, api_port: int, background: bool, **kwargs):
     cli_opts = AgentCLIOptions.from_args(kwargs)
 
     agent_options = {
@@ -561,139 +453,26 @@ def web(api_host: str, api_port: int, streamlit_port: int, background: bool, **k
     agent_options = {k: v for k, v in agent_options.items() if v is not None}
 
     if background:
-        processes = start_web_servers(
+        proc = start_web_server(
             api_host,
             api_port,
-            streamlit_port,
             background=True,
             agent_options=agent_options,
         )
-        if processes:
-            console.print("Серверы запущены в фоновом режиме")
+        if proc:
+            console.print("API сервер запущен в фоновом режиме")
             console.print(f"API: http://{api_host}:{api_port}")
-            console.print(f"Web UI: http://localhost:{streamlit_port}")
-            console.print("\nИспользуйте команды системы для их остановки")
+            console.print("\nИспользуйте команды системы для остановки процесса")
         else:
-            console.print("[red]Ошибка запуска серверов[/red]")
+            console.print("[red]Ошибка запуска API сервера[/red]")
             sys.exit(1)
     else:
-        start_web_servers(
+        start_web_server(
             api_host,
             api_port,
-            streamlit_port,
             background=False,
             agent_options=agent_options,
         )
-
-
-@AgentCLIOptions.agent_options
-@common_options
-@cli.command()
-@click.argument("task", required=False)
-@click.option(
-    "--max-iterations", type=int, default=10, help="Maximum planning iterations."
-)
-def plan(
-    task: str | None,
-    file_path: str | None,
-    max_iterations: int,
-    **kwargs: Any,
-):
-    """
-    Generate a structured AutoML task plan using the Planner agent.
-
-    This command runs the Planner agent to analyze an AutoML task and generate
-    a comprehensive plan with library selection, research findings, and
-    step-by-step implementation guide.
-
-    The plan includes 6 sections:
-    - Task Goal
-    - Task Type (Classification/Regression/RecSys/Time Series/Event Sequence)
-    - Evaluation Metric
-    - Technological Stack (Sber library selection)
-    - Research findings on how to use the selected library
-    - Step-by-Step Plan
-
-    Examples:
-        autods plan "Titanic survival prediction task"
-        autods plan -f task_description.txt --max-iterations 15
-        autods plan "Forecast time series" --save
-    """
-    import re
-
-    from autods.agents.planner.planner import PlannerAgent
-
-    cli_opts = AgentCLIOptions.from_args(kwargs)
-
-    task_description = _handle_task_input(task, file_path)
-
-    project_path = kwargs.get("project_path")
-    if project_path:
-        cli_opts.project_path = project_path
-
-    app_config = _load_app_config(cli_opts)
-
-    if app_config.search_service is None:
-        console.print(
-            "[yellow]Warning: Search service not configured. "
-            "Planner may not be able to use deep_research tool.[/yellow]\n"
-        )
-
-    console.print(f"[blue]Task Description:[/blue] {task_description}")
-    console.print(f"[blue]Max Iterations:[/blue] {max_iterations}\n")
-
-    recursion_limit = cli_opts.max_steps or 200
-
-    # Create Planner agent
-    try:
-        agent = PlannerAgent(app_config)
-    except Exception as e:
-        console.print(f"[red]Failed to initialize Planner agent:[/red] {e}")
-        traceback.print_exc()
-        sys.exit(1)
-
-    # Execute planning
-    console.print("[yellow]Starting planning process...[/yellow]\n")
-
-    async def _plan_task():
-        result = await agent.runnable().ainvoke(
-            {
-                "messages": [HumanMessage(content=task_description)],
-                "tool_call_count": 0,
-                "max_tool_calls": max_iterations,
-            },
-            config={"recursion_limit": recursion_limit},
-            context=cast(Any, agent.context),
-        )
-
-        # Extract plan from final messages
-        messages = result.get("messages", [])
-        final_plan = ""
-        if messages:
-            last_message = messages[-1]
-            final_plan = str(last_message.content)
-            # Remove TERMINATE marker if present
-            final_plan = re.sub(r"<TERMINATE>", "", final_plan).strip()
-
-        if not final_plan:
-            console.print(
-                "[yellow]Planning completed but no plan was generated.[/yellow]"
-            )
-            return
-
-        # Display plan
-        console.print("\n[green bold]Generated Plan:[/green bold]\n")
-        console.print(final_plan)
-
-    try:
-        asyncio.run(_plan_task())
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Planning interrupted by user[/yellow]")
-        sys.exit(1)
-    except Exception as e:
-        console.print(f"\n[red]Planning failed:[/red] {e}")
-        traceback.print_exc()
-        sys.exit(1)
 
 
 def main():

@@ -800,48 +800,6 @@ def create_app(agent_options: Optional[dict[str, Any]] = None) -> FastAPI:
     async def health_check():
         return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
-    @app.get("/api/datasets")
-    async def list_datasets():
-        """List all indexed datasets from grad."""
-        try:
-            from autods.grad.grad import grad
-
-            datasets = await grad.list_datasets()
-            return {
-                "datasets": [
-                    {"name": d.name, "id": str(d.id)} for d in (datasets or [])
-                ]
-            }
-        except Exception as e:
-            logger.error("Failed to list datasets: %s", e)
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @app.post("/api/datasets")
-    async def add_dataset(request: AddDatasetRequest):
-        """Add a repository to the knowledge graph (grad.add)."""
-        try:
-            from autods.grad.grad import grad
-            from autods.grad.repository import get_repository_id
-
-            await grad.add(request.url)
-            repo_id = get_repository_id(request.url)
-            return {"status": "success", "name": repo_id, "url": request.url}
-        except Exception as e:
-            logger.error("Failed to add dataset: %s", e)
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @app.delete("/api/datasets/{name}")
-    async def delete_dataset(name: str):
-        """Delete a dataset from the knowledge graph."""
-        try:
-            from autods.grad.grad import grad
-
-            await grad.delete_dataset(name)
-            return {"status": "deleted", "name": name}
-        except Exception as e:
-            logger.error("Failed to delete dataset: %s", e)
-            raise HTTPException(status_code=500, detail=str(e))
-
     @app.post("/api/session/{session_id}/install")
     async def install_libraries(session_id: str, request: InstallLibrariesRequest):
         """Install Python libraries in the session's venv."""
