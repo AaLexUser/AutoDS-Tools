@@ -33,11 +33,12 @@ from langchain_core.messages import (
 )
 from pydantic import BaseModel
 
+from autods.agents.autods import AutoDSAgent
 from autods.runtime.runner import AgentRunner
 from autods.sessions import SessionMetadata, SessionNotFoundError, SessionService
 from autods.utils.config import load_config
 
-from ..web.loggers import Tracer
+from .loggers import Tracer
 
 logger = logging.getLogger(__name__)
 PROJECTS_ROOT = Path(os.environ.get("PROJECTS_ROOT", "/tmp/autods/projects"))
@@ -61,9 +62,6 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     ".py",
     ".ipynb",
 }
-
-from autods.agents.autods import AutoDSAgent
-
 SESSION_DELETION_MAX_WAIT = 10.0
 SESSION_DELETION_POLL_INTERVAL = 0.1
 SESSION_DELETION_WARNING_THRESHOLD = 2.0

@@ -1,0 +1,37 @@
+[project]
+name = "autods"
+version = "0.1.0"
+description = "Core AutoDS agent library"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27.2",
+    "ipykernel>=6.29.0",
+    "ipython>=8.18.0",
+    "json-repair>=0.44.1,<0.45.0",
+    "jupyter-client>=8.6.0",
+    "langchain~=0.3.27",
+    "langchain-core~=0.3.75",
+    "langchain-google-genai~=2.1.10",
+    "langchain-openai>=0.3.32",
+    "langgraph~=0.6.6",
+    "langgraph-checkpoint-sqlite>=2.0.11",
+    "lark>=1.1.9",
+    "nbclient>=0.10.2",
+    "nbformat>=5.10.4",
+    "psutil>=7.1.0",
+    "pydantic>=2.11.0",
+    "pygrad",
+    "pyyaml>=6.0.2",
+    "rich>=14.1.0",
+    "torch>=2.8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/autods"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/autods/**", "tests/**"]

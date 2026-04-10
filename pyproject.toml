@@ -1,59 +1,31 @@
 [project]
-name = "autods-tools"
+name = "autods-workspace"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "Workspace root for the AutoDS monorepo"
 requires-python = ">=3.12"
-dependencies = [
-    "click>=8.2.1",
-    "langchain-core~=0.3.75",
-    "langchain-google-genai~=2.1.10",
-    "langchain-openai>=0.3.32",
-    "langgraph~=0.6.6",
-    "python-dotenv>=1.1.1",
-    "pyyaml>=6.0.2",
-    "rich>=14.1.0",
-    "httpx>=0.27.2",
-    "langchain~=0.3.27",
-    "torch>=2.8.0",
-    "langgraph-checkpoint-sqlite>=2.0.11",
-    "nbclient>=0.10.2",
-    "nbformat>=5.10.4",
-    "lark>=1.1.9",
-    "psutil>=7.1.0",
-    "fastapi>=0.127.0",
-    "pygrad",
-]
-
-[project.scripts]
-autods = "autods.cli:main"
+dependencies = []
 
 [dependency-groups]
 dev = [
+    "mypy>=1.18.1",
+    "pre-commit>=4.2.0",
     "pytest>=8.4.2",
     "pytest-asyncio>=0.26.0",
-    "pytest-mock>=3.12.0",
-    "types-pyyaml>=6.0.12.20250822",
-    "pre-commit>=4.2.0",
-    "mypy>=1.18.1",
     "pytest-cov>=7.0.0",
-    "ruff>=0.13.0"
+    "pytest-mock>=3.12.0",
+    "ruff>=0.13.0",
+    "types-pyyaml>=6.0.12.20250822",
 ]
 
-[project.optional-dependencies]
-web = [
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
-    "websockets>=11.0",
-    "python-multipart>=0.0.6",
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.workspace]
+members = [
+    "packages/autods",
+    "apps/server",
+    "apps/cli",
 ]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["autods"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -71,33 +43,32 @@ warn_unreachable = false
 strict_equality = false
 explicit_package_bases = true
 namespace_packages = true
-mypy_path = "."
+mypy_path = "packages/autods/src:apps/server/src:apps/cli/src"
 ignore_missing_imports = true
 exclude = [
-    "autods/tools/templates/",
-    "benchmark/baselines_no_tool/",
-    "benchmark/baselines_with_tool",
+    "apps/frontend",
     "data",
-    "bench/competitions/",
-    "bench/results/",
     "mle-bench",
 ]
 
 [[tool.mypy.overrides]]
 module = [
+    "dotenv.*",
+    "langchain.*",
     "langchain_core.*",
     "langchain_google_genai.*",
     "langchain_openai.*",
     "langgraph.*",
-    "dotenv.*",
 ]
 ignore_missing_imports = true
 
 [tool.ruff]
+target-version = "py312"
 fix = true
-exclude = [
-    "autods/tools/templates/",
-    "bench/results/",
+extend-exclude = [
+    "apps/frontend/.next",
+    "apps/frontend/node_modules",
+    "bench/results",
     "mle-bench",
     "RepoMaster",
 ]
@@ -105,14 +76,18 @@ exclude = [
 [tool.ruff.lint]
 select = [
     "I",
-    "F401" # Unused import
+    "F401",
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["autods"]
+known-first-party = ["autods", "autods_cli", "autods_web"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = [
+    "packages/autods/tests",
+    "apps/server/tests",
+    "apps/cli/tests",
+]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

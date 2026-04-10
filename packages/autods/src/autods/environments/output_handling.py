@@ -96,10 +96,8 @@ class OutputParser:
             if is_success:
                 output_text = OutputParser._filter_log_lines(output_text)
 
-            # Don't truncate individual outputs - we'll truncate the combined result
             parsed_output.append(output_text)
 
-        # Combine all outputs with newlines (more readable than commas)
         combined = "\n".join([p for p in parsed_output if p])
 
         # Truncate the COMBINED output to keep_len, saving full output to file if path provided

@@ -27,20 +27,20 @@ from nbformat.v4 import (
     output_from_msg,
 )
 
-from autods.environments.display_utils import display_code
-from autods.environments.kernel_management import KernelManagement
-from autods.environments.output_handling import OutputParser
-from autods.environments.utility_functions import (
+from autods.tools.base import Observation
+
+from .display_utils import display_code
+from .kernel_management import KernelManagement
+from .output_handling import OutputParser, OutputTruncator
+from .utility_functions import (
     EXECUTION_TIMEOUT_SECONDS,
     detect_ipython,
     shutdown_all_kernels,
 )
-from autods.environments.utility_functions import display_image as display_image_util
-from autods.tools.base import Observation
+from .utility_functions import display_image as display_image_util
 
 logger = logging.getLogger(__name__)
 
-# Constants moved from utility_functions
 INSTALL_KEEPLEN = 500
 
 # Keep track of active executor instances for cleanup on exit
@@ -363,7 +363,9 @@ class JupyterExecutor:
         except Exception as e:
             logger.error(f"Error executing code: {str(e)}")
             return Observation(
-                is_success=False, message=f"Error: {str(e)}", base64_images=[]
+                is_success=False,
+                message=f"Error: {str(e)}",
+                base64_images=[],
             )
         finally:
             self._save_notebook()
@@ -380,8 +382,6 @@ class JupyterExecutor:
         success, output, images = await self.run_cell(
             self.nb.cells[-1], cell_index, timeout, save_path=output_path
         )
-
-        from autods.environments.output_handling import OutputTruncator
 
         if "!pip" in code:
             output = output[-INSTALL_KEEPLEN:]

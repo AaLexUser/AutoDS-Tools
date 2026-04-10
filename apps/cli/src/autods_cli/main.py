@@ -20,7 +20,7 @@ from autods.callbacks.tracer import Tracer
 from autods.runtime.runner import AgentRunner
 from autods.sessions import SessionMetadata, SessionNotFoundError, SessionService
 from autods.utils.config import load_config
-from autods.web.server import start_web_server
+from autods_web.server import start_web_server
 
 _ = load_dotenv()
 
@@ -430,7 +430,6 @@ def resume(session_id: Optional[str], **kwargs: Any):
         )
 
     asyncio.run(_resume_session())
-
 
 
 @AgentCLIOptions.agent_options

@@ -167,6 +167,7 @@ class Config(BaseModel):
 
     model_providers: dict[str, ModelProvider] = Field(default_factory=dict)
     models: dict[str, ModelConfig] = Field(default_factory=dict)
+    mcp_servers: dict[str, dict[str, Any]] = Field(default_factory=dict)
     # Selected default model configuration (resolved at load time). Optional for typing.
     model: ModelConfig | None = None
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
@@ -239,6 +240,17 @@ class Config(BaseModel):
             config.models = config_models
         else:
             raise ConfigError("No models provided")
+
+        # ======= MCP Servers =======
+        mcp_servers = yaml_config.get("mcp_servers", None)
+        if mcp_servers is not None:
+            if not isinstance(mcp_servers, dict):
+                raise ConfigError("mcp_servers must be a mapping when provided")
+            config.mcp_servers = {
+                str(server_name): server_config
+                for server_name, server_config in mcp_servers.items()
+                if isinstance(server_config, dict)
+            }
 
         # ====== Agents =======
         agents = yaml_config.get("agents", None)

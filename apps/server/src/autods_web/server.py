@@ -6,7 +6,7 @@ from typing import Any, Optional
 import uvicorn
 from rich.console import Console
 
-from autods.web.api import create_app
+from .api import create_app
 
 console = Console()
 
@@ -53,3 +53,7 @@ def start_web_server(
         console.print("\nОстановка сервера...")
 
     return None
+
+
+def main() -> None:
+    run_api_server()

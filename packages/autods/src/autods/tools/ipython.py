@@ -38,6 +38,12 @@ def _get_context() -> Any:
     return context
 
 
+def _build_executor(
+    project_path: Path, env_vars: dict[str, str] | None
+) -> JupyterExecutor:
+    return JupyterExecutor(workspace=project_path, env_vars=env_vars)
+
+
 def _get_executor(context: Any) -> JupyterExecutor:
     """Fetch or create the executor stored on the agent context."""
     executor = getattr(context, "jupyter_executor", None)
@@ -48,7 +54,7 @@ def _get_executor(context: Any) -> JupyterExecutor:
     project_path.mkdir(parents=True, exist_ok=True)
 
     env_vars = getattr(context, "python_env", None)
-    executor = JupyterExecutor(workspace=project_path, env_vars=env_vars)
+    executor = _build_executor(project_path, env_vars)
     try:
         context.jupyter_executor = executor  # type: ignore[attr-defined]
     except (AttributeError, TypeError):

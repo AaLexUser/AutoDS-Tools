@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Iterable
 
 from langchain_core.messages import HumanMessage
@@ -95,7 +96,7 @@ class ShellTool(BaseTool):
         sandbox = context.sandbox
         sandbox_result = await sandbox.run(
             command_args,
-            cwd=context.project_path,
+            cwd=Path(context.project_path),
             timeout=self.timeout,
         )
         return format_exec_output(sandbox_result)
