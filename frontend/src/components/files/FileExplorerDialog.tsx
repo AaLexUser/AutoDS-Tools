@@ -1,7 +1,6 @@
 'use client'
 
-import { useState } from 'react'
-import { Download, RefreshCw, X } from 'lucide-react'
+import { Download, RefreshCw } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -10,7 +9,6 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
 import { FileTree } from './FileTree'
 import { FilePreview } from './FilePreview'
 import { useUIStore } from '@/stores/useUIStore'

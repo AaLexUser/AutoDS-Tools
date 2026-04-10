@@ -5,9 +5,7 @@ import {
   FolderOpen,
   Database,
   Package,
-  Upload,
   Download,
-  Settings,
   Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'

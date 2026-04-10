@@ -8,7 +8,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Trash2,
-  MoreVertical,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -74,27 +73,33 @@ function SessionItem({
   }
 
   return (
-    <button
-      onClick={onClick}
+    <div
       className={cn(
-        'w-full flex items-center gap-3 p-3 rounded-lg transition-all group',
+        'w-full flex items-center gap-1 rounded-lg transition-all group',
         isActive
           ? 'bg-accent/10 text-text-primary border border-accent/30 shadow-glow-sm'
           : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover border border-transparent'
       )}
     >
-      <MessageSquare className={cn('h-4 w-4 flex-shrink-0', isActive && 'text-accent')} />
-      <div className="flex-1 text-left min-w-0">
-        <p className="font-mono text-sm truncate">{shortId}</p>
-        <p className="text-2xs text-text-muted">
-          {format(createdDate, 'MMM d, HH:mm')} · {formatBytes(session.folder_size)}
-        </p>
-      </div>
       <button
+        type="button"
+        onClick={onClick}
+        className="flex flex-1 items-center gap-3 p-3 min-w-0 text-left"
+      >
+        <MessageSquare className={cn('h-4 w-4 flex-shrink-0', isActive && 'text-accent')} />
+        <div className="flex-1 text-left min-w-0">
+          <p className="font-mono text-sm truncate">{shortId}</p>
+          <p className="text-2xs text-text-muted">
+            {format(createdDate, 'MMM d, HH:mm')} · {formatBytes(session.folder_size)}
+          </p>
+        </div>
+      </button>
+      <button
+        type="button"
         onClick={handleDelete}
         disabled={isDeleting}
         className={cn(
-          'p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity',
+          'mr-2 p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity',
           'hover:bg-red-500/20 hover:text-red-400',
           'disabled:opacity-50 disabled:cursor-not-allowed'
         )}
@@ -102,7 +107,7 @@ function SessionItem({
       >
         <Trash2 className="h-3.5 w-3.5" />
       </button>
-    </button>
+    </div>
   )
 }
 

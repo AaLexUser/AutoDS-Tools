@@ -91,7 +91,7 @@ function MarkdownRendererComponent({ content }: MarkdownRendererProps) {
               {segment.content}
             </ReactMarkdown>
           ) : null
-        } else {
+        } else if (segment.tool) {
           // Render tool call
           return (
             <ToolCallBlock
@@ -102,6 +102,8 @@ function MarkdownRendererComponent({ content }: MarkdownRendererProps) {
             />
           )
         }
+
+        return null
       })}
     </div>
   )

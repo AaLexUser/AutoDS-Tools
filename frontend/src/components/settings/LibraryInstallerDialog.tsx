@@ -12,7 +12,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { cn } from '@/lib/utils/cn'
 import { useUIStore } from '@/stores/useUIStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useInstallLibraries } from '@/hooks/useDatasets'
@@ -70,7 +69,7 @@ export function LibraryInstallerDialog() {
         setLibraries([])
         setStatus('idle')
       }, 2000)
-    } catch (err) {
+    } catch {
       setStatus('error')
       setError('Failed to install libraries. Please try again.')
     }

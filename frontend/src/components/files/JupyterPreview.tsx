@@ -1,14 +1,13 @@
 'use client'
 
 import { useMemo } from 'react'
-import { Download, Code, FileText, Play } from 'lucide-react'
+import { Download, Code, FileText } from 'lucide-react'
 import hljs from 'highlight.js/lib/core'
 import python from 'highlight.js/lib/languages/python'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { cn } from '@/lib/utils/cn'
 
 hljs.registerLanguage('python', python)
 
@@ -56,11 +55,15 @@ function CellOutputComponent({ output }: { output: CellOutput }) {
   if (output.output_type === 'display_data' && output.data?.['image/png']) {
     const base64 = getSource(output.data['image/png'])
     return (
+      <>
+        {/* Notebook outputs are dynamic base64 payloads, so using a plain img keeps rendering simple. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={`data:image/png;base64,${base64}`}
         alt="Output"
         className="max-w-full"
       />
+      </>
     )
   }
 
@@ -75,7 +78,7 @@ function CellOutputComponent({ output }: { output: CellOutput }) {
   return null
 }
 
-function NotebookCellComponent({ cell, index }: { cell: NotebookCell; index: number }) {
+function NotebookCellComponent({ cell }: { cell: NotebookCell }) {
   const source = getSource(cell.source)
 
   if (cell.cell_type === 'markdown') {
@@ -172,7 +175,7 @@ export function JupyterPreview({ content, filename, onDownload }: JupyterPreview
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4 max-w-4xl mx-auto">
           {notebook.cells.map((cell, index) => (
-            <NotebookCellComponent key={index} cell={cell} index={index} />
+            <NotebookCellComponent key={index} cell={cell} />
           ))}
         </div>
       </ScrollArea>

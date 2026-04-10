@@ -22,12 +22,12 @@ interface WebSocketMessage {
 
 export function useAgentWebSocket(sessionId: string | null) {
   const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>()
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const reconnectAttemptsRef = useRef(0)
   const sessionIdRef = useRef<string | null>(null)
   const isClosingRef = useRef(false)
+  const connectRef = useRef<((targetSessionId: string) => void) | null>(null)
   const maxReconnectAttempts = 5
-  const connectRef = useRef<(targetSessionId: string) => void>()
 
   const connect = useCallback((targetSessionId: string) => {
     if (!targetSessionId) return
@@ -167,7 +167,6 @@ export function useAgentWebSocket(sessionId: string | null) {
         const delay = Math.min(1000 * 2 ** reconnectAttemptsRef.current, 10000)
         console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`)
         reconnectTimeoutRef.current = setTimeout(() => {
-          // Use ref to always call the latest version of connect, avoiding stale closures
           connectRef.current?.(targetSessionId)
         }, delay)
       }
@@ -181,8 +180,9 @@ export function useAgentWebSocket(sessionId: string | null) {
     wsRef.current = ws
   }, [])
 
-  // Keep connectRef updated with the latest connect function
-  connectRef.current = connect
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
 
   useEffect(() => {
     // Only reconnect if sessionId actually changed

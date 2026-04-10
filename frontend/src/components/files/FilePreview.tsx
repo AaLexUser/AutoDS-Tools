@@ -9,7 +9,6 @@ import { PythonPreview } from './PythonPreview'
 import { JupyterPreview } from './JupyterPreview'
 import { useFileContent } from '@/hooks/useArtifacts'
 import {
-  getFileExtension,
   isPythonFile,
   isCSVFile,
   isJupyterNotebook,
@@ -70,6 +69,8 @@ export function FilePreview({ sessionId, filePath }: FilePreviewProps) {
     return (
       <div className="h-full flex flex-col">
         <div className="flex-1 flex items-center justify-center p-4 bg-surface">
+          {/* Artifact previews can be arbitrary local files, so a plain img is the most reliable option here. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/session/${sessionId}/file?file_path=${encodeURIComponent(filePath)}`}
             alt={filename}

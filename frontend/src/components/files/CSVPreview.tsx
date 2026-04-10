@@ -31,6 +31,7 @@ export function CSVPreview({ content, filename, onDownload }: CSVPreviewProps) {
       <div className="px-4 py-2 border-b border-border bg-surface flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Table className="h-4 w-4 text-text-muted" />
+          <span className="text-sm font-mono text-text-secondary">{filename}</span>
           <span className="text-sm text-text-secondary">
             {rows.length} rows × {columns.length} columns
           </span>

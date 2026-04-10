@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   Folder,
   FolderOpen,
@@ -43,6 +43,15 @@ function getFileIcon(filename: string | null | undefined) {
   return FileText
 }
 
+function renderNodeIcon(isDirectory: boolean, expanded: boolean, filename: string | null | undefined): ReactNode {
+  if (isDirectory) {
+    return expanded ? <FolderOpen className="h-4 w-4 flex-shrink-0 text-accent" /> : <Folder className="h-4 w-4 flex-shrink-0 text-accent" />
+  }
+
+  const Icon = getFileIcon(filename)
+  return <Icon className="h-4 w-4 flex-shrink-0 text-text-muted" />
+}
+
 export function FileTree({ node, selectedPath, onSelect, depth = 0 }: FileTreeProps) {
   const [expanded, setExpanded] = useState(depth < 2)
 
@@ -56,10 +65,6 @@ export function FileTree({ node, selectedPath, onSelect, depth = 0 }: FileTreePr
       onSelect(node.path)
     }
   }
-
-  const Icon = isDirectory
-    ? (expanded ? FolderOpen : Folder)
-    : getFileIcon(node.name)
 
   return (
     <div>
@@ -82,12 +87,7 @@ export function FileTree({ node, selectedPath, onSelect, depth = 0 }: FileTreePr
             )}
           </span>
         )}
-        <Icon
-          className={cn(
-            'h-4 w-4 flex-shrink-0',
-            isDirectory ? 'text-accent' : 'text-text-muted'
-          )}
-        />
+        {renderNodeIcon(isDirectory, expanded, node.name)}
         <span className="truncate text-sm flex-1">{node.name}</span>
         {!isDirectory && node.size !== undefined && (
           <span className="text-2xs text-text-muted flex-shrink-0">

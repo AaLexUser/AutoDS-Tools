@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiClient, Session } from '@/lib/api/client'
+import { apiClient } from '@/lib/api/client'
 import { useSessionStore } from '@/stores/useSessionStore'
 
 export function useSessions() {

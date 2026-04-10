@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Download, Copy, Check } from 'lucide-react'
 import hljs from 'highlight.js/lib/core'
 import python from 'highlight.js/lib/languages/python'

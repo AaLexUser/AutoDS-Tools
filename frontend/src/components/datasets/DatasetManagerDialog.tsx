@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Database, Plus, Trash2, Loader2, Github, RefreshCw, AlertCircle } from 'lucide-react'
+import { Database, Plus, Trash2, Loader2, Link, RefreshCw, AlertCircle } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -40,7 +40,7 @@ export function DatasetManagerDialog() {
     try {
       await addDataset.mutateAsync(url)
       setUrl('')
-    } catch (err) {
+    } catch {
       setError('Failed to add repository. Please try again.')
     }
   }
@@ -70,7 +70,7 @@ export function DatasetManagerDialog() {
         <div className="space-y-3">
           <div className="flex gap-2">
             <div className="flex-1 relative">
-              <Github className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
+              <Link className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
               <Input
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
@@ -139,7 +139,7 @@ export function DatasetManagerDialog() {
                   >
                     <div className="flex items-center gap-3">
                       <div className="h-8 w-8 rounded bg-accent/10 flex items-center justify-center">
-                        <Github className="h-4 w-4 text-accent" />
+                        <Link className="h-4 w-4 text-accent" />
                       </div>
                       <div>
                         <p className="font-medium text-text-primary">{dataset.name}</p>

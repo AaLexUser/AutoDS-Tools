@@ -1,6 +1,5 @@
-import type { Config } from 'tailwindcss'
-
-const config: Config = {
+/** @type {import('tailwindcss').Config} */
+module.exports = {
   content: [
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
@@ -9,7 +8,6 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Core palette - refined dark with cyan accents
         background: {
           DEFAULT: '#08090a',
           secondary: '#0f1114',
@@ -61,7 +59,7 @@ const config: Config = {
         'slide-up': 'slideUp 0.4s ease-out forwards',
         'slide-in-left': 'slideInLeft 0.3s ease-out forwards',
         'pulse-glow': 'pulseGlow 2s ease-in-out infinite',
-        'typing': 'typing 1s ease-in-out infinite',
+        typing: 'typing 1s ease-in-out infinite',
       },
       keyframes: {
         fadeIn: {
@@ -86,7 +84,7 @@ const config: Config = {
         },
       },
       boxShadow: {
-        'glow': '0 0 20px rgba(34, 211, 238, 0.15)',
+        glow: '0 0 20px rgba(34, 211, 238, 0.15)',
         'glow-sm': '0 0 10px rgba(34, 211, 238, 0.1)',
         'inner-glow': 'inset 0 0 20px rgba(34, 211, 238, 0.05)',
       },
@@ -97,4 +95,3 @@ const config: Config = {
   },
   plugins: [],
 }
-export default config

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useState, useEffect } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
 import { Message } from './Message'
 import { InputArea } from './InputArea'
@@ -16,7 +16,6 @@ export function ChatContainer() {
 
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [atBottom, setAtBottom] = useState(true)
-  const [showScrollButton, setShowScrollButton] = useState(false)
 
   // Connect WebSocket when session is active
   useAgentWebSocket(currentSessionId)
@@ -24,17 +23,9 @@ export function ChatContainer() {
   // Handle scroll state changes from Virtuoso
   const handleAtBottomStateChange = useCallback((bottom: boolean) => {
     setAtBottom(bottom)
-    if (bottom) {
-      setShowScrollButton(false)
-    }
   }, [])
 
-  // Show scroll button when not at bottom and new messages arrive
-  useEffect(() => {
-    if (!atBottom && messages.length > 0) {
-      setShowScrollButton(true)
-    }
-  }, [messages.length, atBottom])
+  const showScrollButton = !atBottom && messages.length > 0
 
   // Scroll to bottom handler - align 'end' ensures we see the end of the last message
   const scrollToBottom = useCallback(() => {
