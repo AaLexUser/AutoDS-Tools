@@ -12,6 +12,9 @@ while utility functions handle specific tasks like output formatting and display
 import asyncio
 import atexit
 import logging
+import os
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
@@ -95,6 +98,33 @@ class JupyterExecutor:
 
         active_executors.append(self)
 
+    def _ensure_ipykernel_installed(self) -> None:
+        """Ensure the target interpreter can launch an ipykernel."""
+        if not self.env_vars or "VIRTUAL_ENV" not in self.env_vars:
+            return
+
+        venv_dir = Path(self.env_vars["VIRTUAL_ENV"])
+        python = venv_dir / ("Scripts" if os.name == "nt" else "bin") / (
+            "python.exe" if os.name == "nt" else "python"
+        )
+        python_executable = str(python if python.exists() else Path(sys.executable))
+        env = dict(self.env_vars)
+
+        install_result = subprocess.run(
+            [python_executable, "-m", "pip", "install", "ipykernel"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        if install_result.returncode == 0:
+            return
+
+        output = (install_result.stderr or install_result.stdout or "").strip()
+        if len(output) > INSTALL_KEEPLEN * 2:
+            output = output[:INSTALL_KEEPLEN] + "..." + output[-INSTALL_KEEPLEN:]
+        raise RuntimeError(f"Failed to install ipykernel: {output}")
+
     def _load_or_create_notebook(self, nb: Optional[NotebookNode]) -> NotebookNode:
         """Load existing notebook or create a new one."""
         if nb is not None:
@@ -157,6 +187,7 @@ class JupyterExecutor:
 
     async def init_kernel(self) -> None:
         """Initialize the kernel if needed."""
+        self._ensure_ipykernel_installed()
         await self.kernel_manager.init(self.workspace)
 
     async def terminate(self) -> None:
