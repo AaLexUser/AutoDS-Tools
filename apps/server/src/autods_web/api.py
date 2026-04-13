@@ -9,7 +9,8 @@ import queue
 import shutil
 import threading
 import zipfile
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -23,7 +24,6 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.concurrency import run_in_threadpool
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from langchain_core.messages import (
     AIMessageChunk,
@@ -32,6 +32,8 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from pydantic import BaseModel
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 
 from autods.agents.autods import AutoDSAgent
 from autods.runtime.runner import AgentRunner
@@ -128,7 +130,7 @@ class WebSocketManager:
                     {
                         "type": "history_batch",
                         "messages": self.aggregated_history[session_id],
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
                 )
                 await websocket.send_text(batch_msg)
@@ -196,14 +198,17 @@ class WebSocketManager:
                 msg_type = parsed.get("type")
                 msg_data = parsed.get("data", "")
                 msg_id = parsed.get("message_id")
-                timestamp = parsed.get("timestamp", datetime.utcnow().isoformat())
+                timestamp = parsed.get(
+                    "timestamp", datetime.now(timezone.utc).isoformat()
+                )
 
                 if msg_type == "token":
                     current = self._current_message.get(session_id)
                     if current is None or (msg_id and current.get("id") != msg_id):
                         self._finalize_current_message(session_id)
                         self._current_message[session_id] = {
-                            "id": msg_id or f"msg-{datetime.utcnow().timestamp()}",
+                            "id": msg_id
+                            or f"msg-{datetime.now(timezone.utc).timestamp()}",
                             "role": "assistant",
                             "content": msg_data,
                             "timestamp": timestamp,
@@ -218,7 +223,7 @@ class WebSocketManager:
                         self.aggregated_history[session_id] = []
                     self.aggregated_history[session_id].append(
                         {
-                            "id": f"{msg_type}-{datetime.utcnow().timestamp()}",
+                            "id": f"{msg_type}-{datetime.now(timezone.utc).timestamp()}",
                             "role": "environment",
                             "content": msg_data,
                             "timestamp": timestamp,
@@ -254,10 +259,10 @@ class WebSocketManager:
                 self.aggregated_history[session_id] = []
             self.aggregated_history[session_id].append(
                 {
-                    "id": f"user-{datetime.utcnow().timestamp()}",
+                    "id": f"user-{datetime.now(timezone.utc).timestamp()}",
                     "role": "user",
                     "content": content,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "isStreaming": False,
                 }
             )
@@ -353,16 +358,44 @@ def _artifacts_root(session_id: str) -> Path:
 
 
 def create_app(agent_options: Optional[dict[str, Any]] = None) -> FastAPI:
-    app = FastAPI(title="AutoDS API", version="0.1.0")
-    default_agent_options = agent_options or {}
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        async def _refresh_all_sizes():
+            try:
+                session_service = SessionService()
+                sessions = session_service.list_sessions()
+                for session in sessions:
+                    try:
+                        workspace = get_session_workspace(session.id, create=False)
+                        size = await run_in_threadpool(get_folder_size, workspace)
+                        session_service.update_folder_size(session.id, size)
+                    except SessionNotFoundError:
+                        logger.warning(
+                            "Session %s was deleted during folder size refresh",
+                            session.id,
+                        )
+                logger.info("Refreshed folder sizes for %d sessions", len(sessions))
+            except Exception as e:
+                logger.warning("Failed to refresh folder sizes on startup: %s", e)
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        asyncio.create_task(_refresh_all_sizes())
+        yield
+
+    app = FastAPI(
+        title="AutoDS API",
+        version="0.1.0",
+        lifespan=lifespan,
+        middleware=[
+            Middleware(
+                CORSMiddleware,  # type: ignore[arg-type]  # Starlette typing limitation
+                allow_origins=["*"],
+                allow_credentials=True,
+                allow_methods=["*"],
+                allow_headers=["*"],
+            ),
+        ],
     )
+    default_agent_options = agent_options or {}
     manager = WebSocketManager()
 
     def _ensure_session_exists(session_id: str) -> SessionMetadata:
@@ -470,7 +503,7 @@ def create_app(agent_options: Optional[dict[str, Any]] = None) -> FastAPI:
             payload: dict[str, Any] = {
                 "type": msg_type,
                 "data": str(content),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
             if message_id:
                 payload["message_id"] = message_id
@@ -711,7 +744,7 @@ def create_app(agent_options: Optional[dict[str, Any]] = None) -> FastAPI:
                 {
                     "type": "status",
                     "data": "cancelling",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
             await manager.send_message(session_id, cancel_msg)
@@ -957,29 +990,5 @@ def create_app(agent_options: Optional[dict[str, Any]] = None) -> FastAPI:
             media_type="application/zip",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
-
-    @app.on_event("startup")
-    async def startup_refresh_folder_sizes():
-        """Refresh folder sizes for all sessions on startup."""
-
-        async def _refresh_all_sizes():
-            try:
-                session_service = SessionService()
-                sessions = session_service.list_sessions()
-                for session in sessions:
-                    try:
-                        workspace = get_session_workspace(session.id, create=False)
-                        size = await run_in_threadpool(get_folder_size, workspace)
-                        session_service.update_folder_size(session.id, size)
-                    except SessionNotFoundError:
-                        logger.warning(
-                            "Session %s was deleted during folder size refresh",
-                            session.id,
-                        )
-                logger.info("Refreshed folder sizes for %d sessions", len(sessions))
-            except Exception as e:
-                logger.warning("Failed to refresh folder sizes on startup: %s", e)
-
-        asyncio.create_task(_refresh_all_sizes())
 
     return app
