@@ -35,7 +35,7 @@ class TaskInference(ABC, Generic[StateT, TaskContextT]):
         inputs into the declared ``state_type`` when available.
         """
         context = self._ensure_context(runtime)
-        return await self._runnable(cast(StateT, state), context)
+        return await self._runnable(state, context)
 
     async def _runnable(
         self, state: StateT, context: TaskContextT

@@ -35,3 +35,6 @@ packages = ["src/autods"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/autods/**", "tests/**"]
+
+[tool.uv.sources]
+pygrad = { git = "https://github.com/AaLexUser/pygrad" }

@@ -149,17 +149,20 @@ export const apiClient = {
   },
 
   async listDatasets(): Promise<DatasetEntry[]> {
-    return []
+    return fetchJson<DatasetEntry[]>('/api/datasets')
   },
 
   async addDataset(url: string): Promise<DatasetEntry> {
-    void url
-    throw new Error('Repository indexing is not implemented by the current backend.')
+    return fetchJson<DatasetEntry>('/api/datasets', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    })
   },
 
   async deleteDataset(name: string) {
-    void name
-    throw new Error('Repository indexing is not implemented by the current backend.')
+    return fetchJson<void>(`/api/datasets/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    })
   },
 
   getArchiveUrl(sessionId: string) {

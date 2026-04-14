@@ -25,27 +25,17 @@ AutoDS-Tools/
 └── Makefile
 ```
 
-Module-specific notes live next to each workspace member:
-
-- [packages/autods/README.md](packages/autods/README.md)
-- [apps/server/README.md](apps/server/README.md)
-- [apps/cli/README.md](apps/cli/README.md)
-- [apps/frontend/README.md](apps/frontend/README.md)
-- [docker/README.md](docker/README.md)
-
 ## Architecture
 
 ![AutoDS-Tools Architecture](docs/images/AutoDS-Tools.png)
 
-The main workflow is still the same:
+The main workflow:
 
 1. Analyst explores the task and data.
 2. Researcher studies relevant libraries through GRAD.
 3. Planner creates an execution strategy.
 4. Coder implements and debugs the solution.
 5. Presenter audits and summarizes the result.
-
-The current packaging is intentionally simple: the Python core owns both the agent logic and notebook execution, while the CLI, server, and frontend are isolated entry points.
 
 ## Prerequisites
 
@@ -165,11 +155,7 @@ make frontend-build
 
 ## GRAD
 
-GRAD is the documentation and graph-retrieval layer used by the agent when it needs to understand external libraries. The current repository structure keeps that behavior inside the core package; it is not a separate workspace package yet.
-
-## Status
-
-This repository is still early-stage. The monorepo layout is intended to make future extraction and replacement easier, not to preserve old paths.
+GRAD is the documentation and graph-retrieval layer used by the agent when it needs to understand external libraries.
 
 ## License
 

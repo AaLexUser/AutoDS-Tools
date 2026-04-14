@@ -3,7 +3,9 @@ name = "autods-workspace"
 version = "0.1.0"
 description = "Workspace root for the AutoDS monorepo"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "autods-cli",
+]
 
 [dependency-groups]
 dev = [
@@ -100,4 +102,5 @@ markers = [
 ]
 
 [tool.uv.sources]
+autods-cli = { workspace = true }
 pygrad = { git = "https://github.com/AaLexUser/pygrad.git" }

@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import pygrad as pg
 import yaml
 from fastapi import (
     FastAPI,
@@ -774,6 +775,29 @@ def create_app(agent_options: Optional[dict[str, Any]] = None) -> FastAPI:
             logger.info("Dataset %s uploaded for session %s", filename, session_id)
 
         return {"paths": uploaded_paths}
+
+    @app.get("/api/datasets")
+    async def list_datasets():
+        datasets = await pg.list()
+        return [{"id": ds.name, "name": ds.name} for ds in datasets]
+
+    @app.post("/api/datasets", status_code=201)
+    async def add_dataset(request: AddDatasetRequest):
+        try:
+            await pg.add(request.url)
+        except Exception as exc:
+            logger.error("Failed to add dataset %s: %s", request.url, exc)
+            raise HTTPException(status_code=500, detail=str(exc))
+        ds = await pg.get_dataset(request.url)
+        return {"id": ds.name, "name": ds.name}
+
+    @app.delete("/api/datasets/{name}", status_code=204)
+    async def delete_dataset(name: str):
+        try:
+            await pg.delete(name)
+        except Exception as exc:
+            logger.error("Failed to delete dataset %s: %s", name, exc)
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @app.websocket("/api/ws/{session_id}")
     async def websocket_endpoint(websocket: WebSocket, session_id: str):
