@@ -1,14 +1,21 @@
-# AutoDS-Tools
+<div align="center">
 
-![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)
-![License](https://img.shields.io/badge/license-BSD%203--Clause-green.svg)
-![LangGraph](https://img.shields.io/badge/built%20with-LangGraph-orange.svg)
+# `AutoDS-Tools`
 
-AutoDS-Tools is an early-stage AutoML agent system built as a monorepo. The codebase is split into small workspace packages and apps: reusable Python libraries live in `packages/`, runnable entry points live in `apps/`, and service assets live in `docker/`.
+![Python 3.12+](https://img.shields.io/badge/python-3.12+-white.svg)
+![License](https://img.shields.io/badge/license-BSD%203--Clause-white.svg)
+![LangGraph](https://img.shields.io/badge/built%20with-LangGraph-white.svg)
+
+**Multi-agent AutoDS system that can work with any DS/ML library.**
+
+</div>
 
 ## Demo
 
 [Watch the Video on YouTube](https://youtu.be/H_88VTaxsfs)
+
+<a href=https://youtu.be/H_88VTaxsfs><img width="400" alt="Watch the video" src="https://github.com/user-attachments/assets/d782e3e8-2daf-460a-a635-9c1120c5f953" /></a>
+
 
 ## Workspace Layout
 
@@ -19,7 +26,7 @@ AutoDS-Tools/
 │   ├── frontend/     # Next.js UI
 │   └── server/       # FastAPI backend
 ├── packages/
-│   └── autods/       # core agent library, including notebook execution
+│   └── autods/       # core agent library
 ├── docker/           # local compose assets
 ├── pyproject.toml    # uv workspace root
 └── Makefile
@@ -42,7 +49,7 @@ The main workflow:
 - Python 3.12+
 - `uv`
 - Node.js 18+ and `npm` for the frontend
-- Docker, if you want to run local support services
+- Docker
 
 ## Setup
 
@@ -55,12 +62,6 @@ make install
 That runs `uv sync --all-packages` and installs all Python workspace members into the shared workspace environment.
 
 ### Frontend
-
-```bash
-make frontend-install
-```
-
-Or manually:
 
 ```bash
 cd apps/frontend
@@ -110,12 +111,6 @@ See [autods_config.yaml.example](autods_config.yaml.example) for the fuller temp
 ### Backend
 
 ```bash
-make server-dev
-```
-
-Or:
-
-```bash
 uv run autods-web
 ```
 
@@ -140,22 +135,12 @@ uv run autods exec "Solve this classification task using LightAutoML"
 uv run autods resume <session-id>
 ```
 
-## Common Commands
-
-```bash
-make help
-make format
-make lint
-make mypy
-make test
-make check
-make frontend-lint
-make frontend-build
-```
 
 ## GRAD
 
 GRAD is the documentation and graph-retrieval layer used by the agent when it needs to understand external libraries.
+
+For more information, visit https://github.com/AaLexUser/pygrad.
 
 ## License
 
