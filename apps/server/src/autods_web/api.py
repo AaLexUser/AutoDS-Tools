@@ -779,7 +779,7 @@ def create_app(agent_options: Optional[dict[str, Any]] = None) -> FastAPI:
     @app.get("/api/datasets")
     async def list_datasets():
         datasets = await pg.list()
-        return [{"id": ds.name, "name": ds.name} for ds in datasets]
+        return [{"id": ds.name, "name": ds.name} for ds in (datasets or [])]
 
     @app.post("/api/datasets", status_code=201)
     async def add_dataset(request: AddDatasetRequest):
