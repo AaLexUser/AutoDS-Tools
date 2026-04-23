@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 
 import httpx
 import pytest
@@ -24,8 +25,15 @@ def test_exec_without_server_url_autostarts_local_server(
     calls: list[tuple[str, str | None]] = []
 
     class FakeClient:
-        def run_once(self, message: str, session_id: str | None = None) -> str:
+        def run_once(
+            self,
+            message: str,
+            session_id: str | None = None,
+            options: dict[str, object] | None = None,
+        ) -> str:
+            del session_id
             calls.append(("run_once", message))
+            assert options is not None
             return "session-123"
 
         def stream_session_until_idle(self, session_id: str, **_kwargs) -> int:
@@ -54,8 +62,15 @@ def test_exec_with_server_url_skips_local_autostart(monkeypatch) -> None:
     calls: list[tuple[str, str | None]] = []
 
     class FakeClient:
-        def run_once(self, message: str, session_id: str | None = None) -> str:
+        def run_once(
+            self,
+            message: str,
+            session_id: str | None = None,
+            options: dict[str, object] | None = None,
+        ) -> str:
+            del session_id
             calls.append(("run_once", message))
+            assert options is not None
             return "session-456"
 
         def stream_session_until_idle(self, session_id: str, **_kwargs) -> int:
@@ -83,8 +98,47 @@ def test_exec_with_server_url_skips_local_autostart(monkeypatch) -> None:
     assert ("run_once", "hello world") in calls
 
 
-def test_stream_session_until_idle_uses_transcript_status_only() -> None:
+def test_hosted_client_start_run_sends_options_in_request_body() -> None:
+    request_payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/sessions/session-123/runs":
+            request_payloads.append(json.loads(request.content.decode("utf-8")))
+            return httpx.Response(
+                200,
+                json={"session_id": "session-123", "status": "started"},
+            )
+        pytest.fail(f"Unexpected request path: {request.url.path}")
+
+    client = HostedApiClient(
+        "http://example.com",
+        "principal-token",
+        client=httpx.Client(
+            transport=httpx.MockTransport(handler),
+            base_url="http://example.com",
+            headers={"X-AutoDS-Principal": "principal-token"},
+        ),
+    )
+
+    client.start_run(
+        "session-123",
+        "hello",
+        options={"project_path": "/tmp/project", "model": "gpt-5"},
+    )
+
+    assert request_payloads == [
+        {
+            "message": "hello",
+            "options": {"project_path": "/tmp/project", "model": "gpt-5"},
+        }
+    ]
+
+
+def test_stream_session_until_idle_renders_finalized_streaming_message(
+    monkeypatch,
+) -> None:
     seen_paths: list[str] = []
+    rendered_messages: list[list[str]] = []
     transcript_payloads = [
         {
             "session_id": "session-123",
@@ -95,6 +149,7 @@ def test_stream_session_until_idle_uses_transcript_status_only() -> None:
                     "role": "assistant",
                     "content": "partial",
                     "timestamp": "2026-04-14T10:00:00+00:00",
+                    "isStreaming": True,
                 }
             ],
         },
@@ -105,18 +160,19 @@ def test_stream_session_until_idle_uses_transcript_status_only() -> None:
                 {
                     "id": "assistant-1",
                     "role": "assistant",
-                    "content": "partial",
-                    "timestamp": "2026-04-14T10:00:00+00:00",
-                },
-                {
-                    "id": "assistant-2",
-                    "role": "assistant",
-                    "content": "done",
+                    "content": "partial done",
                     "timestamp": "2026-04-14T10:00:01+00:00",
+                    "isStreaming": False,
                 },
             ],
         },
     ]
+
+    def fake_render_messages(messages, *, include_user: bool = False) -> None:
+        del include_user
+        rendered_messages.append([message.content for message in messages])
+
+    monkeypatch.setattr(cli_main, "render_messages", fake_render_messages)
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen_paths.append(request.url.path)
@@ -137,7 +193,8 @@ def test_stream_session_until_idle_uses_transcript_status_only() -> None:
 
     seen_count = client.stream_session_until_idle("session-123", poll_interval=0)
 
-    assert seen_count == 2
+    assert seen_count == 1
+    assert rendered_messages == [["partial done"]]
     assert seen_paths == [
         "/api/sessions/session-123/transcript",
         "/api/sessions/session-123/transcript",

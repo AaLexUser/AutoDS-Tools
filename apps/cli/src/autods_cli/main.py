@@ -117,7 +117,12 @@ class SessionClient(Protocol):
     def get_session(self, session_id: str) -> RemoteSession: ...
     def get_transcript(self, session_id: str) -> TranscriptModel: ...
     def cancel_session(self, session_id: str) -> None: ...
-    def run_once(self, message: str, session_id: str | None = None) -> str: ...
+    def run_once(
+        self,
+        message: str,
+        session_id: str | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> str: ...
     def stream_session_until_idle(
         self,
         session_id: str,
@@ -302,19 +307,33 @@ class HostedApiClient:
         response = self._request("GET", f"/api/sessions/{session_id}/transcript")
         return TranscriptModel.model_validate(response.json())
 
-    def start_run(self, session_id: str, message: str) -> None:
+    def start_run(
+        self,
+        session_id: str,
+        message: str,
+        *,
+        options: dict[str, Any] | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {"message": message}
+        if options:
+            payload["options"] = options
         self._request(
             "POST",
             f"/api/sessions/{session_id}/runs",
-            json={"message": message},
+            json=payload,
         )
 
     def cancel_session(self, session_id: str) -> None:
         self._request("POST", f"/api/sessions/{session_id}/cancel")
 
-    def run_once(self, message: str, session_id: str | None = None) -> str:
+    def run_once(
+        self,
+        message: str,
+        session_id: str | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> str:
         selected_session = session_id or self.create_session().id
-        self.start_run(selected_session, message)
+        self.start_run(selected_session, message, options=options)
         return selected_session
 
     def stream_session_until_idle(
@@ -325,12 +344,21 @@ class HostedApiClient:
         include_user: bool = False,
         poll_interval: float = 0.5,
     ) -> int:
+        stream_start_index = seen_messages
+        rendered_ids: set[str] = set()
         while True:
             transcript = self.get_transcript(session_id)
-            new_messages = transcript.messages[seen_messages:]
-            if new_messages:
-                render_messages(new_messages, include_user=include_user)
-                seen_messages = len(transcript.messages)
+            render_batch: list[TranscriptMessageModel] = []
+            for message in transcript.messages[stream_start_index:]:
+                if message.id in rendered_ids:
+                    continue
+                if message.role == "assistant" and message.isStreaming:
+                    continue
+                render_batch.append(message)
+                rendered_ids.add(message.id)
+            if render_batch:
+                render_messages(render_batch, include_user=include_user)
+            seen_messages = len(transcript.messages)
 
             if transcript.status == "idle":
                 return seen_messages
@@ -425,6 +453,7 @@ def exec(
 ) -> None:
     """Execute a single task against the hosted session service."""
     cli_opts = AgentCLIOptions.from_args(kwargs)
+    run_options = build_server_options(cli_opts)
     runtime = build_cli_runtime(
         cli_opts,
         server_url=server_url,
@@ -434,7 +463,11 @@ def exec(
     if runtime.started_local:
         console.print(f"[dim]Started local AutoDS server at {runtime.server_url}[/dim]")
     inline_task = _handle_task_input(task, file_path)
-    selected_session = runtime.client.run_once(inline_task, session_id=session_id)
+    selected_session = runtime.client.run_once(
+        inline_task,
+        session_id=session_id,
+        options=run_options,
+    )
     runtime.client.stream_session_until_idle(selected_session)
     console.print(f"[dim]Session: {selected_session}[/dim]")
 
@@ -452,6 +485,7 @@ def chat(
 ) -> None:
     """Start an interactive chat against the hosted server."""
     cli_opts = AgentCLIOptions.from_args({**kwargs, "project_path": project_path})
+    run_options = build_server_options(cli_opts)
     runtime = build_cli_runtime(
         cli_opts,
         server_url=server_url,
@@ -477,7 +511,7 @@ def chat(
         if stripped in {"exit", "quit"}:
             return
 
-        runtime.client.run_once(stripped, session_id=session_id)
+        runtime.client.run_once(stripped, session_id=session_id, options=run_options)
         seen_messages = runtime.client.stream_session_until_idle(
             session_id,
             seen_messages=seen_messages,
@@ -499,6 +533,7 @@ def resume(
 ) -> None:
     """Resume an existing hosted session."""
     cli_opts = AgentCLIOptions.from_args({**kwargs, "project_path": project_path})
+    run_options = build_server_options(cli_opts)
     runtime = build_cli_runtime(
         cli_opts,
         server_url=server_url,
@@ -533,7 +568,11 @@ def resume(
         if stripped in {"exit", "quit"}:
             return
 
-        runtime.client.run_once(stripped, session_id=selected.id)
+        runtime.client.run_once(
+            stripped,
+            session_id=selected.id,
+            options=run_options,
+        )
         seen_messages = runtime.client.stream_session_until_idle(
             selected.id,
             seen_messages=seen_messages,

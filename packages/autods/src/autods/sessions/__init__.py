@@ -5,6 +5,7 @@ from autods.sessions.domain import (
     SessionStatus,
     SessionStorageError,
     TranscriptMessage,
+    validate_principal_id,
 )
 from autods.sessions.service import SessionService
 from autods.sessions.storage import SessionStorage
@@ -18,4 +19,5 @@ __all__ = [
     "SessionStorage",
     "SessionStorageError",
     "TranscriptMessage",
+    "validate_principal_id",
 ]

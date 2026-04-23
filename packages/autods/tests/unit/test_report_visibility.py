@@ -9,7 +9,11 @@ from autods.constants import (
     PLANNER_REPORT_PATH,
     RESEARCHER_REPORT_PATH,
 )
-from autods.prompting.prompt_generator import AutoDSPromptGenerator
+from autods.prompting.prompt_generator import (
+    AutoDSPromptGenerator,
+    PlannerOneShotPromptGenerator,
+    ResearcherPromptGenerator,
+)
 from autods.task_inference.autods import (
     OneShotAnalystSaveReport,
     OneShotPlanner,
@@ -42,6 +46,42 @@ def test_autods_prompt_generator_loads_saved_reports(tmp_path: Path) -> None:
         project_path=str(project_path),
         tools=[],
     ).user_prompt
+
+    assert "[Analyst Report]\nanalyst body" in prompt.content
+    assert "[Planner Report]\nplanner body" in prompt.content
+    assert "[Researcher Report]\nresearcher body" in prompt.content
+
+
+def test_researcher_prompt_generator_loads_saved_reports(tmp_path: Path) -> None:
+    project_path = tmp_path
+    (project_path / ANALYST_REPORT_PATH).parent.mkdir(parents=True, exist_ok=True)
+    (project_path / ANALYST_REPORT_PATH).write_text("analyst body", encoding="utf-8")
+    (project_path / PLANNER_REPORT_PATH).write_text("planner body", encoding="utf-8")
+    (project_path / RESEARCHER_REPORT_PATH).write_text(
+        "researcher body", encoding="utf-8"
+    )
+
+    prompt = ResearcherPromptGenerator(
+        project_path=str(project_path),
+        tools=[],
+        steps_limit=2,
+    ).user_prompt
+
+    assert "[Analyst Report]\nanalyst body" in prompt.content
+    assert "[Planner Report]\nplanner body" in prompt.content
+    assert "[Researcher Report]\nresearcher body" in prompt.content
+
+
+def test_planner_prompt_generator_loads_saved_reports(tmp_path: Path) -> None:
+    project_path = tmp_path
+    (project_path / ANALYST_REPORT_PATH).parent.mkdir(parents=True, exist_ok=True)
+    (project_path / ANALYST_REPORT_PATH).write_text("analyst body", encoding="utf-8")
+    (project_path / PLANNER_REPORT_PATH).write_text("planner body", encoding="utf-8")
+    (project_path / RESEARCHER_REPORT_PATH).write_text(
+        "researcher body", encoding="utf-8"
+    )
+
+    prompt = PlannerOneShotPromptGenerator(project_path=str(project_path)).user_prompt
 
     assert "[Analyst Report]\nanalyst body" in prompt.content
     assert "[Planner Report]\nplanner body" in prompt.content

@@ -48,7 +48,9 @@ from autods.sessions import (
     SessionService,
     SessionStatus,
     SessionStorage,
+    SessionStorageError,
     TranscriptMessage,
+    validate_principal_id,
 )
 from autods.utils.config import load_config
 
@@ -97,6 +99,7 @@ class TranscriptResponse(BaseModel):
 
 class RunRequest(BaseModel):
     message: str
+    options: dict[str, Any] | None = None
 
 
 class RunResponse(BaseModel):
@@ -113,7 +116,13 @@ class InstallLibrariesRequest(BaseModel):
 
 
 class SessionRuntime:
-    def start_run(self, session: SessionMetadata, prompt: str) -> None:
+    def start_run(
+        self,
+        session: SessionMetadata,
+        prompt: str,
+        run_options: dict[str, Any] | None = None,
+    ) -> None:
+        del run_options
         raise NotImplementedError
 
     def cancel_run(self, session: SessionMetadata) -> bool:
@@ -211,10 +220,16 @@ class HostedAgentRuntime(SessionRuntime):
         self._threads: dict[str, threading.Thread] = {}
         self._cancel_events: dict[str, threading.Event] = {}
 
-    def _build_runner(self, session: SessionMetadata) -> RunnerProtocol:
+    def _build_runner(
+        self,
+        session: SessionMetadata,
+        run_options: dict[str, Any] | None = None,
+    ) -> RunnerProtocol:
         if self.runner_factory is not None:
             return self.runner_factory(session)
         merged_opts = dict(self.agent_options)
+        if run_options:
+            merged_opts.update({key: value for key, value in run_options.items()})
         service = SessionService(session.principal_id, storage=self.storage)
         workspace = Path(
             merged_opts.get("project_path") or service.workspace_path(session.id)
@@ -239,7 +254,12 @@ class HostedAgentRuntime(SessionRuntime):
             session=session,
         )
 
-    def start_run(self, session: SessionMetadata, prompt: str) -> None:
+    def start_run(
+        self,
+        session: SessionMetadata,
+        prompt: str,
+        run_options: dict[str, Any] | None = None,
+    ) -> None:
         with self._lock:
             existing = self._threads.get(session.id)
             if existing and existing.is_alive():
@@ -249,7 +269,7 @@ class HostedAgentRuntime(SessionRuntime):
         main_loop = asyncio.get_running_loop()
         thread = threading.Thread(
             target=self._run_session,
-            args=(session, prompt, main_loop, cancel_event),
+            args=(session, prompt, main_loop, cancel_event, run_options),
             daemon=True,
         )
         with self._lock:
@@ -276,11 +296,12 @@ class HostedAgentRuntime(SessionRuntime):
         prompt: str,
         main_loop: asyncio.AbstractEventLoop,
         cancel_event: threading.Event,
+        run_options: dict[str, Any] | None = None,
     ) -> None:
         service = SessionService(session.principal_id, storage=self.storage)
         local_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(local_loop)
-        runner = self._build_runner(session)
+        runner = self._build_runner(session, run_options=run_options)
         trace_file = service.trace_path(session.id) / "tracing.yaml"
         tracer = Tracer(file_path=trace_file, reset=True)
         current_message_id: str | None = None
@@ -314,6 +335,17 @@ class HostedAgentRuntime(SessionRuntime):
             )
             current_message_id = None
             current_assistant_chunks = []
+
+        def _set_session_status(status: SessionStatus) -> bool:
+            try:
+                service.set_status(session.id, status)
+                return True
+            except SessionNotFoundError:
+                logger.debug(
+                    "Skipping status update for deleted session %s",
+                    session.id,
+                )
+                return False
 
         async def ui_callback(mode: str, chunk: Any) -> None:
             nonlocal current_message_id, current_assistant_chunks
@@ -391,7 +423,7 @@ class HostedAgentRuntime(SessionRuntime):
                     debug=True,
                 )
                 _finalize_assistant()
-                service.set_status(session.id, SessionStatus.IDLE)
+                _set_session_status(SessionStatus.IDLE)
                 _broadcast(
                     {
                         "type": "status",
@@ -401,7 +433,7 @@ class HostedAgentRuntime(SessionRuntime):
                 )
             except asyncio.CancelledError:
                 _finalize_assistant()
-                service.set_status(session.id, SessionStatus.IDLE)
+                _set_session_status(SessionStatus.IDLE)
                 _broadcast(
                     {
                         "type": "status",
@@ -412,7 +444,7 @@ class HostedAgentRuntime(SessionRuntime):
             except Exception as exc:
                 logger.exception("Run failed for session %s", session.id)
                 _finalize_assistant()
-                service.set_status(session.id, SessionStatus.ERROR)
+                _set_session_status(SessionStatus.ERROR)
                 _broadcast(
                     {
                         "type": "status",
@@ -421,11 +453,23 @@ class HostedAgentRuntime(SessionRuntime):
                     }
                 )
             finally:
-                workspace = service.workspace_path(session.id, create=False)
-                service.update_folder_size(session.id, get_folder_size(workspace))
-                with self._lock:
-                    self._cancel_events.pop(session.id, None)
-                    self._threads.pop(session.id, None)
+                try:
+                    workspace = service.workspace_path(session.id, create=False)
+                    service.update_folder_size(session.id, get_folder_size(workspace))
+                except SessionNotFoundError:
+                    logger.debug(
+                        "Skipping workspace metadata sync for deleted session %s",
+                        session.id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to finalize workspace metadata for session %s",
+                        session.id,
+                    )
+                finally:
+                    with self._lock:
+                        self._cancel_events.pop(session.id, None)
+                        self._threads.pop(session.id, None)
 
         try:
             local_loop.run_until_complete(_execute())
@@ -587,7 +631,13 @@ def create_app(
     def _require_principal(request: Request) -> str:
         principal_id = _principal_from_request(request)
         if principal_id:
-            return principal_id
+            try:
+                return validate_principal_id(principal_id)
+            except SessionStorageError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid principal identity",
+                ) from exc
         raise HTTPException(status_code=401, detail="Missing principal identity")
 
     def _session_service(principal_id: str) -> SessionService:
@@ -617,7 +667,14 @@ def create_app(
 
     @app.post("/api/bootstrap", response_model=BootstrapResponse)
     async def bootstrap(request: Request, response: Response):
-        principal_id = _principal_from_request(request) or generate_principal_id()
+        principal_id = _principal_from_request(request)
+        if principal_id is not None:
+            try:
+                principal_id = validate_principal_id(principal_id)
+            except SessionStorageError:
+                principal_id = generate_principal_id()
+        else:
+            principal_id = generate_principal_id()
         response.set_cookie(
             key=COOKIE_PRINCIPAL_NAME,
             value=principal_id,
@@ -667,9 +724,14 @@ def create_app(
         service.set_status(session.id, SessionStatus.RUNNING)
         session = service.get_session(session.id)
         try:
-            runtime.start_run(session, body.message)
+            runtime.start_run(session, body.message, run_options=body.options)
         except RuntimeError as exc:
-            service.set_status(session.id, SessionStatus.ERROR)
+            refreshed = service.get_session(session.id)
+            if refreshed.status not in {
+                SessionStatus.RUNNING,
+                SessionStatus.CANCELLING,
+            }:
+                service.set_status(session.id, SessionStatus.ERROR)
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return RunResponse(session_id=session.id, status="started")
 
@@ -937,6 +999,12 @@ def create_app(
         if principal_id is None:
             await websocket.accept()
             await websocket.close(code=4401, reason="Missing principal identity")
+            return
+        try:
+            principal_id = validate_principal_id(principal_id)
+        except SessionStorageError:
+            await websocket.accept()
+            await websocket.close(code=4400, reason="Invalid principal identity")
             return
         try:
             _get_owned_session(principal_id, session_id)

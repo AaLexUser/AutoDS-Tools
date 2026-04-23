@@ -13,6 +13,22 @@ from autods.prompting.prompt_store import prompt_store
 from autods.tools.base import BaseTool
 
 
+def _saved_reports_context(project_path: str) -> str:
+    context = ""
+    for label, relative_path in (
+        ("Analyst Report", ANALYST_REPORT_PATH),
+        ("Planner Report", PLANNER_REPORT_PATH),
+        ("Researcher Report", RESEARCHER_REPORT_PATH),
+    ):
+        report_path = Path(project_path) / relative_path
+        if not report_path.exists() or not report_path.is_file():
+            continue
+        report = report_path.read_text(encoding="utf-8").strip()
+        if report:
+            context += f"[{label}]\n{report}\n\n"
+    return context
+
+
 class PromptGenerator(ABC):
     def __init__(self) -> None:
         self._initial_message_index: int = 0
@@ -88,41 +104,9 @@ class AutoDSPromptGenerator(PromptGenerator):
 
     @property
     def user_prompt(self) -> HumanMessage:
-        context = ""
-
-        analyst_report_path = Path(self.project_path) / ANALYST_REPORT_PATH
-        if (
-            analyst_report_path.exists()
-            and analyst_report_path.is_file()
-            and analyst_report_path.stat().st_size > 0
-            and analyst_report_path.read_text(encoding="utf-8").strip() != ""
-        ):
-            analyst_report = analyst_report_path.read_text(encoding="utf-8")
-            context += f"[Analyst Report]\n{analyst_report}\n\n"
-
-        planner_report_path = Path(self.project_path) / PLANNER_REPORT_PATH
-        if (
-            planner_report_path.exists()
-            and planner_report_path.is_file()
-            and planner_report_path.stat().st_size > 0
-            and planner_report_path.read_text(encoding="utf-8").strip() != ""
-        ):
-            planner_report = planner_report_path.read_text(encoding="utf-8")
-            context += f"[Planner Report]\n{planner_report}\n\n"
-
-        researcher_report_path = Path(self.project_path) / RESEARCHER_REPORT_PATH
-        if (
-            researcher_report_path.exists()
-            and researcher_report_path.is_file()
-            and researcher_report_path.stat().st_size > 0
-            and researcher_report_path.read_text(encoding="utf-8").strip() != ""
-        ):
-            researcher_report = researcher_report_path.read_text(encoding="utf-8")
-            context += f"[Researcher Report]\n{researcher_report}\n\n"
-
         return HumanMessage(
             content=(
-                f"{context}"
+                f"{_saved_reports_context(self.project_path)}"
                 f"[Time]\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                 f"[Project root path]\n{self.project_path}\n\n"
             )
@@ -195,41 +179,9 @@ class AnalystPromptGenerator(PromptGenerator):
 
     @property
     def user_prompt(self) -> HumanMessage:
-        context = ""
-
-        analyst_report_path = Path(self.project_path) / ANALYST_REPORT_PATH
-        if (
-            analyst_report_path.exists()
-            and analyst_report_path.is_file()
-            and analyst_report_path.stat().st_size > 0
-            and analyst_report_path.read_text(encoding="utf-8").strip() != ""
-        ):
-            analyst_report = analyst_report_path.read_text(encoding="utf-8")
-            context += f"[Analyst Report]\n{analyst_report}\n\n"
-
-        planner_report_path = Path(self.project_path) / PLANNER_REPORT_PATH
-        if (
-            planner_report_path.exists()
-            and planner_report_path.is_file()
-            and planner_report_path.stat().st_size > 0
-            and planner_report_path.read_text(encoding="utf-8").strip() != ""
-        ):
-            planner_report = planner_report_path.read_text(encoding="utf-8")
-            context += f"[Planner Report]\n{planner_report}\n\n"
-
-        researcher_report_path = Path(self.project_path) / RESEARCHER_REPORT_PATH
-        if (
-            researcher_report_path.exists()
-            and researcher_report_path.is_file()
-            and researcher_report_path.stat().st_size > 0
-            and researcher_report_path.read_text(encoding="utf-8").strip() != ""
-        ):
-            researcher_report = researcher_report_path.read_text(encoding="utf-8")
-            context += f"[Researcher Report]\n{researcher_report}\n\n"
-
         return HumanMessage(
             content=(
-                f"{context}"
+                f"{_saved_reports_context(self.project_path)}"
                 f"[Time]\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                 f"[Project root path]\n{self.project_path}\n\n"
                 f"[STEPS LIMIT]\n{self.steps_limit}\n\n"
@@ -274,6 +226,7 @@ class ResearcherPromptGenerator(PromptGenerator):
     def user_prompt(self) -> HumanMessage:
         return HumanMessage(
             content=(
+                f"{_saved_reports_context(self.project_path)}"
                 f"[Time]\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                 f"[Project root path]\n{self.project_path}\n\n"
                 f"[STEPS LIMIT]\n{self.steps_limit}\n\n"
@@ -294,6 +247,7 @@ class PlannerOneShotPromptGenerator(PromptGenerator):
     def user_prompt(self) -> HumanMessage:
         return HumanMessage(
             content=(
+                f"{_saved_reports_context(self.project_path)}"
                 f"[Time]\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                 f"[Project root path]\n{self.project_path}\n\n"
             )

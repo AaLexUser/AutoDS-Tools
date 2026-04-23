@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Literal
@@ -16,6 +17,7 @@ SESSIONS_DIRNAME = "sessions"
 WORKSPACE_DIRNAME = "workspace"
 TRACE_DIRNAME = "trace"
 CHECKPOINT_FILENAME = "checkpoint.sqlite"
+PRINCIPAL_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class SessionStorageError(RuntimeError):
@@ -58,3 +60,9 @@ class TranscriptMessage(BaseModel):
     message_id: str | None = None
     is_truncated: bool = False
     is_streaming: bool = False
+
+
+def validate_principal_id(principal_id: str) -> str:
+    if not PRINCIPAL_ID_PATTERN.fullmatch(principal_id):
+        raise SessionStorageError("Invalid principal identity")
+    return principal_id

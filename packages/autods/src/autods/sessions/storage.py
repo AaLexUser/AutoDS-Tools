@@ -19,6 +19,7 @@ from autods.sessions.domain import (
     SessionNotFoundError,
     SessionOwnershipError,
     TranscriptMessage,
+    validate_principal_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,7 +110,7 @@ class SessionStorage:
                 )
 
     def principal_path(self, principal_id: str, *, create: bool = True) -> Path:
-        path = self.principals_root / principal_id
+        path = self.principals_root / validate_principal_id(principal_id)
         return self._ensure_dir(path) if create else path
 
     def session_path(

@@ -59,6 +59,9 @@ mypy: ## Run mypy across Python workspace code
 .PHONY: check
 check: lint mypy test ## Run lint, type-check, and tests
 
+.PHONY: quality
+quality: check ## Run the required quality gate
+
 .PHONY: clean
 clean: ## Remove Python and frontend build artifacts
 	rm -rf .coverage .mypy_cache .pytest_cache .ruff_cache htmlcov
