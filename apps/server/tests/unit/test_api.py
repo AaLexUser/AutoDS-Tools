@@ -374,6 +374,12 @@ class ConcurrentStartRuntime(SessionRuntime):
         raise RuntimeError("Session already has a running task")
 
 
+class BrokenRunnerFactory:
+    def __call__(self, session) -> None:
+        del session
+        raise RuntimeError("invalid config")
+
+
 class FakeBlockingRunner:
     def __init__(
         self,
@@ -452,6 +458,37 @@ def test_run_conflict_keeps_session_status_running(session_root: Path) -> None:
     session_response = client.get(f"/api/sessions/{session_id}")
     assert session_response.status_code == 200
     assert session_response.json()["status"] == "running"
+
+
+def test_hosted_runtime_init_failure_marks_session_error_and_cleans_registry(
+    session_root: Path,
+) -> None:
+    storage = SessionStorage(root=session_root)
+    runtime = HostedAgentRuntime(
+        storage=storage,
+        manager=WebSocketManager(),
+        agent_options={},
+        runner_factory=BrokenRunnerFactory(),
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    _bootstrap(client)
+    session_id = client.post("/api/sessions").json()["id"]
+
+    run_response = client.post(
+        f"/api/sessions/{session_id}/runs",
+        json={"message": "hello"},
+    )
+    assert run_response.status_code == 200
+    runtime.wait_for_completion(session_id, timeout=1.0)
+
+    session_response = client.get(f"/api/sessions/{session_id}")
+    assert session_response.status_code == 200
+    assert session_response.json()["status"] == "error"
+
+    with runtime._lock:
+        assert session_id not in runtime._threads
+        assert session_id not in runtime._cancel_events
 
 
 def test_hosted_runtime_cleans_registry_after_deleted_session_finalizer_error(

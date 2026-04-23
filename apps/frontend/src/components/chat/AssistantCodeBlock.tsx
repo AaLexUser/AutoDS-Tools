@@ -81,7 +81,7 @@ function AssistantCodeBlockComponent({ language, code, output }: AssistantCodeBl
   }, [code])
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface/60 shadow-[0_12px_30px_-28px_rgba(0,0,0,0.9)]">
+    <div className="relative overflow-hidden rounded-xl border border-border bg-surface/60 shadow-[0_12px_30px_-28px_rgba(0,0,0,0.9)]">
       <div
         role="button"
         tabIndex={0}

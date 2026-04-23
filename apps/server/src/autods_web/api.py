@@ -301,9 +301,6 @@ class HostedAgentRuntime(SessionRuntime):
         service = SessionService(session.principal_id, storage=self.storage)
         local_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(local_loop)
-        runner = self._build_runner(session, run_options=run_options)
-        trace_file = service.trace_path(session.id) / "tracing.yaml"
-        tracer = Tracer(file_path=trace_file, reset=True)
         current_message_id: str | None = None
         current_assistant_chunks: list[str] = []
 
@@ -347,47 +344,52 @@ class HostedAgentRuntime(SessionRuntime):
                 )
                 return False
 
-        async def ui_callback(mode: str, chunk: Any) -> None:
-            nonlocal current_message_id, current_assistant_chunks
-            if cancel_event.is_set():
-                raise asyncio.CancelledError("Run cancelled")
-            if mode != "messages":
-                return
-            message = chunk[0] if isinstance(chunk, tuple) else chunk
-            timestamp = datetime.now(UTC).isoformat()
-            if isinstance(message, AIMessageChunk):
-                token = str(message.content or "")
-                if not token:
+        try:
+            runner = self._build_runner(session, run_options=run_options)
+            trace_file = service.trace_path(session.id) / "tracing.yaml"
+            tracer = Tracer(file_path=trace_file, reset=True)
+
+            async def ui_callback(mode: str, chunk: Any) -> None:
+                nonlocal current_message_id, current_assistant_chunks
+                if cancel_event.is_set():
+                    raise asyncio.CancelledError("Run cancelled")
+                if mode != "messages":
                     return
-                incoming_id = (
-                    getattr(message, "id", None)
-                    or current_message_id
-                    or f"msg-{datetime.now(UTC).timestamp()}"
-                )
-                if current_message_id and incoming_id != current_message_id:
-                    _finalize_assistant()
-                current_message_id = incoming_id
-                current_assistant_chunks.append(token)
-                service.upsert_transcript_message(
-                    session.id,
-                    TranscriptMessage(
-                        role="assistant",
-                        content="".join(current_assistant_chunks),
-                        message_id=current_message_id,
-                        timestamp=datetime.now(UTC),
-                        is_streaming=True,
-                    ),
-                )
-                _broadcast(
-                    {
-                        "type": "token",
-                        "data": token,
-                        "message_id": current_message_id,
-                        "timestamp": timestamp,
-                    }
-                )
-            else:
-                transcript_message = None
+                message = chunk[0] if isinstance(chunk, tuple) else chunk
+                timestamp = datetime.now(UTC).isoformat()
+                if isinstance(message, AIMessageChunk):
+                    token = str(message.content or "")
+                    if not token:
+                        return
+                    incoming_id = (
+                        getattr(message, "id", None)
+                        or current_message_id
+                        or f"msg-{datetime.now(UTC).timestamp()}"
+                    )
+                    if current_message_id and incoming_id != current_message_id:
+                        _finalize_assistant()
+                    current_message_id = incoming_id
+                    current_assistant_chunks.append(token)
+                    service.upsert_transcript_message(
+                        session.id,
+                        TranscriptMessage(
+                            role="assistant",
+                            content="".join(current_assistant_chunks),
+                            message_id=current_message_id,
+                            timestamp=datetime.now(UTC),
+                            is_streaming=True,
+                        ),
+                    )
+                    _broadcast(
+                        {
+                            "type": "token",
+                            "data": token,
+                            "message_id": current_message_id,
+                            "timestamp": timestamp,
+                        }
+                    )
+                    return
+
                 if isinstance(message, HumanMessage):
                     transcript_message = _human_transcript_message(
                         message,
@@ -408,72 +410,80 @@ class HostedAgentRuntime(SessionRuntime):
                     }
                 )
 
-        async def _execute() -> None:
-            try:
-                _broadcast(
-                    {
-                        "type": "status",
-                        "data": "running",
-                        "timestamp": datetime.now(UTC).isoformat(),
-                    }
-                )
-                await runner.astream(
-                    prompt,
-                    callbacks=[tracer.tracing_callback, ui_callback],
-                    debug=True,
-                )
-                _finalize_assistant()
-                _set_session_status(SessionStatus.IDLE)
-                _broadcast(
-                    {
-                        "type": "status",
-                        "data": "completed",
-                        "timestamp": datetime.now(UTC).isoformat(),
-                    }
-                )
-            except asyncio.CancelledError:
-                _finalize_assistant()
-                _set_session_status(SessionStatus.IDLE)
-                _broadcast(
-                    {
-                        "type": "status",
-                        "data": "cancelled",
-                        "timestamp": datetime.now(UTC).isoformat(),
-                    }
-                )
-            except Exception as exc:
-                logger.exception("Run failed for session %s", session.id)
-                _finalize_assistant()
-                _set_session_status(SessionStatus.ERROR)
-                _broadcast(
-                    {
-                        "type": "status",
-                        "data": f"Error: {exc}",
-                        "timestamp": datetime.now(UTC).isoformat(),
-                    }
-                )
-            finally:
+            async def _execute() -> None:
                 try:
-                    workspace = service.workspace_path(session.id, create=False)
-                    service.update_folder_size(session.id, get_folder_size(workspace))
-                except SessionNotFoundError:
-                    logger.debug(
-                        "Skipping workspace metadata sync for deleted session %s",
-                        session.id,
+                    _broadcast(
+                        {
+                            "type": "status",
+                            "data": "running",
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        }
                     )
-                except Exception:
-                    logger.exception(
-                        "Failed to finalize workspace metadata for session %s",
-                        session.id,
+                    await runner.astream(
+                        prompt,
+                        callbacks=[tracer.tracing_callback, ui_callback],
+                        debug=True,
+                    )
+                    _finalize_assistant()
+                    _set_session_status(SessionStatus.IDLE)
+                    _broadcast(
+                        {
+                            "type": "status",
+                            "data": "completed",
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                except asyncio.CancelledError:
+                    _finalize_assistant()
+                    _set_session_status(SessionStatus.IDLE)
+                    _broadcast(
+                        {
+                            "type": "status",
+                            "data": "cancelled",
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                except Exception as exc:
+                    logger.exception("Run failed for session %s", session.id)
+                    _finalize_assistant()
+                    _set_session_status(SessionStatus.ERROR)
+                    _broadcast(
+                        {
+                            "type": "status",
+                            "data": f"Error: {exc}",
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        }
                     )
                 finally:
-                    with self._lock:
-                        self._cancel_events.pop(session.id, None)
-                        self._threads.pop(session.id, None)
+                    try:
+                        workspace = service.workspace_path(session.id, create=False)
+                        service.update_folder_size(session.id, get_folder_size(workspace))
+                    except SessionNotFoundError:
+                        logger.debug(
+                            "Skipping workspace metadata sync for deleted session %s",
+                            session.id,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Failed to finalize workspace metadata for session %s",
+                            session.id,
+                        )
 
-        try:
             local_loop.run_until_complete(_execute())
+        except Exception as exc:
+            logger.exception("Failed to initialize run for session %s", session.id)
+            _set_session_status(SessionStatus.ERROR)
+            _broadcast(
+                {
+                    "type": "status",
+                    "data": f"Error: {exc}",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
         finally:
+            with self._lock:
+                self._cancel_events.pop(session.id, None)
+                self._threads.pop(session.id, None)
             local_loop.close()
 
 
@@ -609,10 +619,7 @@ def create_app(
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        ],
+        allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -761,7 +768,7 @@ def create_app(
         await manager.mark_session_deleting(session.id)
         try:
             runtime.cancel_run(session)
-            runtime.wait_for_completion(session.id, timeout=10.0)
+            await run_in_threadpool(runtime.wait_for_completion, session.id, 10.0)
             await manager.disconnect(session.id)
             session_root = service.session_path(session.id, create=False)
             if session_root.exists():
