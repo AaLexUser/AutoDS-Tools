@@ -41,7 +41,11 @@ const toolColors: Record<string, string> = {
   submit: 'text-accent border-accent/30 bg-accent/5',
 }
 
-function ToolCallBlockComponent({ tool, content, attributes }: ToolCallBlockProps) {
+function ToolCallBlockComponent({
+  tool,
+  content,
+  attributes,
+}: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(true)
   const [copied, setCopied] = useState(false)
 
@@ -119,19 +123,19 @@ function ToolCallBlockComponent({ tool, content, attributes }: ToolCallBlockProp
       </div>
 
       {/* Content */}
-      {expanded && (
-        <div className="border-t border-current/10">
-          {isOutput ? (
+      <div className="border-t border-current/10">
+        {expanded ? (
+          isOutput ? (
             <pre className="p-3 overflow-x-auto text-sm font-mono bg-black/20">
               <code className="text-text-primary whitespace-pre-wrap break-all">
                 {content}
               </code>
             </pre>
           ) : (
-            <CodeBlock language={language} code={content} />
-          )}
-        </div>
-      )}
+            <CodeBlock language={language} code={content} showToolbar={false} />
+          )
+        ) : null}
+      </div>
     </div>
   )
 }

@@ -1,20 +1,12 @@
 'use client'
 
 import { useEffect, useRef, useCallback } from 'react'
-import { apiClient } from '@/lib/api/client'
+import { apiClient, type TranscriptResponse } from '@/lib/api/client'
 import { useSessionStore, Message } from '@/stores/useSessionStore'
 
 interface WebSocketMessage {
-  type: 'token' | 'tool' | 'status' | 'environment' | 'history_batch'
+  type: 'token' | 'tool' | 'status' | 'environment'
   data?: string
-  messages?: Array<{
-    id: string
-    role: 'user' | 'assistant' | 'environment'
-    content: string
-    timestamp: string
-    isStreaming?: boolean
-    isTruncated?: boolean
-  }>
   message_id?: string
   timestamp: string
   truncated?: boolean
@@ -28,6 +20,43 @@ export function useAgentWebSocket(sessionId: string | null) {
   const isClosingRef = useRef(false)
   const connectRef = useRef<((targetSessionId: string) => void) | null>(null)
   const maxReconnectAttempts = 5
+
+  const applyTranscriptSnapshot = useCallback((transcript: TranscriptResponse) => {
+    const messages: Message[] = transcript.messages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      timestamp: new Date(message.timestamp),
+      isStreaming: message.isStreaming,
+      isTruncated: message.isTruncated,
+    }))
+    const store = useSessionStore.getState()
+    store.setMessages(messages)
+
+    if (transcript.status === 'running') {
+      store.setStreaming(true)
+      store.setStatus('streaming')
+      return
+    }
+    if (transcript.status === 'cancelling') {
+      store.setStreaming(false)
+      store.setStatus('cancelling')
+      return
+    }
+    if (transcript.status === 'error') {
+      store.setStreaming(false)
+      store.setStatus('error', 'Session ended in error')
+      return
+    }
+
+    store.setStreaming(false)
+    store.setStatus('idle')
+  }, [])
+
+  const hydrateTranscript = useCallback(async (targetSessionId: string) => {
+    const transcript = await apiClient.getTranscript(targetSessionId)
+    applyTranscriptSnapshot(transcript)
+  }, [applyTranscriptSnapshot])
 
   const connect = useCallback((targetSessionId: string) => {
     if (!targetSessionId) return
@@ -48,8 +77,10 @@ export function useAgentWebSocket(sessionId: string | null) {
     ws.onopen = () => {
       console.log('[WS] Connected to session:', targetSessionId)
       const store = useSessionStore.getState()
-      store.setStatus('idle')
       reconnectAttemptsRef.current = 0
+      if (store.status === 'connecting') {
+        store.setStatus(store.isStreaming ? 'streaming' : 'idle')
+      }
     }
 
     ws.onmessage = (event) => {
@@ -58,23 +89,6 @@ export function useAgentWebSocket(sessionId: string | null) {
         const store = useSessionStore.getState()
 
         switch (msg.type) {
-          case 'history_batch': {
-            // Handle batch history replay - render all messages instantly
-            if (msg.messages && msg.messages.length > 0) {
-              const messages: Message[] = msg.messages.map((m) => ({
-                id: m.id,
-                role: m.role,
-                content: m.content,
-                timestamp: new Date(m.timestamp),
-                isStreaming: false,
-                isTruncated: m.isTruncated,
-              }))
-              store.setMessages(messages)
-              console.log('[WS] Restored', messages.length, 'messages from history')
-            }
-            break
-          }
-
           case 'token': {
             // Get fresh state to check last message (avoid stale closure)
             const currentMessages = store.messages
@@ -114,7 +128,6 @@ export function useAgentWebSocket(sessionId: string | null) {
             break
           }
 
-          case 'tool':
           case 'environment': {
             // Environment output (tool results, bash output, code execution results)
             const envMessage: Message = {
@@ -165,20 +178,30 @@ export function useAgentWebSocket(sessionId: string | null) {
       if (shouldReconnect) {
         reconnectAttemptsRef.current++
         const delay = Math.min(1000 * 2 ** reconnectAttemptsRef.current, 10000)
+        useSessionStore.getState().setStatus('connecting')
         console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`)
         reconnectTimeoutRef.current = setTimeout(() => {
-          connectRef.current?.(targetSessionId)
+          hydrateTranscript(targetSessionId)
+            .catch(() => {
+              useSessionStore.getState().setStatus('connecting')
+            })
+            .finally(() => {
+              connectRef.current?.(targetSessionId)
+            })
         }, delay)
+        return
       }
+
+      useSessionStore.getState().setStreaming(false)
+      useSessionStore.getState().setStatus('error', 'Disconnected from server')
     }
 
-    ws.onerror = (error) => {
-      console.error('[WS] Error:', error)
-      useSessionStore.getState().setStatus('error', 'WebSocket connection error')
+    ws.onerror = () => {
+      console.warn('[WS] Transport error')
     }
 
     wsRef.current = ws
-  }, [])
+  }, [hydrateTranscript])
 
   useEffect(() => {
     connectRef.current = connect
@@ -204,7 +227,13 @@ export function useAgentWebSocket(sessionId: string | null) {
       }
 
       if (sessionId) {
-        connect(sessionId)
+        useSessionStore.getState().setStatus('connecting')
+        hydrateTranscript(sessionId)
+          .catch((error) => {
+            console.error('[WS] Failed to hydrate transcript:', error)
+            useSessionStore.getState().setStatus('error', 'Failed to load transcript')
+          })
+          .finally(() => connect(sessionId))
       }
     }
 
@@ -217,7 +246,7 @@ export function useAgentWebSocket(sessionId: string | null) {
         wsRef.current.close(1000, 'Component unmounting')
       }
     }
-  }, [sessionId, connect])
+  }, [sessionId, connect, hydrateTranscript])
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {

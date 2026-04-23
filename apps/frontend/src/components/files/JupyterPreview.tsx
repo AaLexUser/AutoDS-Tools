@@ -45,7 +45,7 @@ function CellOutputComponent({ output }: { output: CellOutput }) {
     const text = output.text || output.data?.['text/plain']
     if (text) {
       return (
-        <pre className="text-sm text-text-secondary font-mono whitespace-pre-wrap">
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all text-sm font-mono text-text-secondary">
           {getSource(text)}
         </pre>
       )
@@ -69,7 +69,7 @@ function CellOutputComponent({ output }: { output: CellOutput }) {
 
   if (output.output_type === 'error' && output.traceback) {
     return (
-      <pre className="text-sm text-status-error font-mono whitespace-pre-wrap">
+      <pre className="overflow-x-auto whitespace-pre-wrap break-all text-sm font-mono text-status-error">
         {output.traceback.join('\n')}
       </pre>
     )
@@ -91,7 +91,7 @@ function NotebookCellComponent({ cell }: { cell: NotebookCell }) {
 
   if (cell.cell_type === 'code') {
     return (
-      <div className="border border-border rounded-lg overflow-hidden">
+      <div className="min-w-0 overflow-hidden rounded-lg border border-border">
         {/* Cell header */}
         <div className="px-3 py-1.5 bg-surface-elevated border-b border-border flex items-center gap-2">
           <Code className="h-3 w-3 text-text-muted" />
@@ -101,8 +101,8 @@ function NotebookCellComponent({ cell }: { cell: NotebookCell }) {
         </div>
 
         {/* Code */}
-        <div className="bg-surface">
-          <pre className="p-3 text-sm font-mono overflow-x-auto">
+        <div className="min-w-0 bg-surface">
+          <pre className="overflow-x-auto whitespace-pre-wrap break-all p-3 text-sm font-mono">
             <code
               dangerouslySetInnerHTML={{
                 __html: hljs.highlight(source, {
@@ -116,7 +116,7 @@ function NotebookCellComponent({ cell }: { cell: NotebookCell }) {
 
         {/* Outputs */}
         {cell.outputs && cell.outputs.length > 0 && (
-          <div className="border-t border-border bg-background-secondary p-3 space-y-2">
+          <div className="min-w-0 space-y-2 border-t border-border bg-background-secondary p-3">
             {cell.outputs.map((output, i) => (
               <CellOutputComponent key={i} output={output} />
             ))}
@@ -173,7 +173,7 @@ export function JupyterPreview({ content, filename, onDownload }: JupyterPreview
 
       {/* Cells */}
       <ScrollArea className="flex-1">
-        <div className="p-4 space-y-4 max-w-4xl mx-auto">
+        <div className="min-w-0 w-full space-y-4 p-4">
           {notebook.cells.map((cell, index) => (
             <NotebookCellComponent key={index} cell={cell} />
           ))}

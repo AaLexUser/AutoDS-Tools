@@ -1,13 +1,18 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
 import { Message } from './Message'
 import { InputArea } from './InputArea'
 import { WelcomeScreen } from './WelcomeScreen'
-import { useMessages, useIsStreaming, useCurrentSessionId } from '@/stores/useSessionStore'
+import {
+  useMessages,
+  useIsStreaming,
+  useCurrentSessionId,
+} from '@/stores/useSessionStore'
 import { useAgentWebSocket } from '@/hooks/useAgentWebSocket'
 import { ChevronDown } from 'lucide-react'
+import { buildChatRenderItems } from '@/lib/utils/chat-render-items'
 
 export function ChatContainer() {
   const currentSessionId = useCurrentSessionId()
@@ -16,18 +21,17 @@ export function ChatContainer() {
 
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [atBottom, setAtBottom] = useState(true)
+  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({})
+  const renderItems = useMemo(() => buildChatRenderItems(messages), [messages])
 
-  // Connect WebSocket when session is active
   useAgentWebSocket(currentSessionId)
 
-  // Handle scroll state changes from Virtuoso
   const handleAtBottomStateChange = useCallback((bottom: boolean) => {
     setAtBottom(bottom)
   }, [])
 
-  const showScrollButton = !atBottom && messages.length > 0
+  const showScrollButton = !atBottom && renderItems.length > 0
 
-  // Scroll to bottom handler - align 'end' ensures we see the end of the last message
   const scrollToBottom = useCallback(() => {
     virtuosoRef.current?.scrollToIndex({
       index: 'LAST',
@@ -36,73 +40,81 @@ export function ChatContainer() {
     })
   }, [])
 
+  const handleToggleExpanded = useCallback((messageId: string) => {
+    setExpandedIds(prev => ({ ...prev, [messageId]: !prev[messageId] }))
+  }, [])
+
   if (!currentSessionId) {
     return <WelcomeScreen />
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Messages Area */}
-      <div className="flex-1 overflow-hidden relative">
-        {messages.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-accent/20 to-accent/5 border border-accent/20 flex items-center justify-center mb-4">
-                <span className="text-2xl">🤖</span>
-              </div>
-              <h2 className="text-lg font-medium text-text-primary mb-2">
-                Ready to assist
-              </h2>
-              <p className="text-text-secondary max-w-md">
-                Send a message to start your data science task. I can help with
-                data exploration, feature engineering, model training, and more.
-              </p>
-            </div>
+    <div className="flex h-full flex-col">
+      {/* Messages */}
+      <div className="relative flex-1 overflow-hidden">
+        {renderItems.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm text-text-muted">
+              Send a message to begin.
+            </p>
           </div>
         ) : (
           <Virtuoso
             ref={virtuosoRef}
-            data={messages}
+            data={renderItems}
+            computeItemKey={(_, item) =>
+              item.attachedEnvironment
+                ? `${item.message.id}:${item.attachedEnvironment.id}`
+                : item.message.id
+            }
             className="h-full"
-            // Auto-scroll to bottom when streaming or when new messages arrive (if user is at bottom)
-            followOutput={isStreaming ? 'smooth' : atBottom ? 'smooth' : false}
+            followOutput={
+              isStreaming ? 'smooth' : atBottom ? 'smooth' : false
+            }
             atBottomStateChange={handleAtBottomStateChange}
             atBottomThreshold={100}
-            // Initial scroll position
-            initialTopMostItemIndex={messages.length - 1}
-            // Item renderer
-            itemContent={(index, message) => (
-              <div className="max-w-4xl mx-auto px-4">
-                <div className={index === 0 ? 'pt-6' : 'pt-6'}>
+            initialTopMostItemIndex={renderItems.length - 1}
+            itemContent={(index, item) => (
+              <div className="mx-auto max-w-3xl px-5">
+                <div className={index === 0 ? 'pt-8' : 'pt-5'}>
                   <Message
-                    message={message}
-                    isLast={index === messages.length - 1}
+                    message={item.message}
+                    assistantContent={item.assistantContent}
+                    isLast={index === renderItems.length - 1}
+                    expanded={Boolean(expandedIds[item.message.id])}
+                    onToggleExpanded={handleToggleExpanded}
+                    attachedEnvironment={item.attachedEnvironment}
+                    attachedEnvironmentExpanded={
+                      item.attachedEnvironment
+                        ? Boolean(
+                            expandedIds[item.attachedEnvironment.id],
+                          )
+                        : false
+                    }
                   />
                 </div>
               </div>
             )}
-            // Bottom padding
             components={{
-              Footer: () => <div className="h-6" />,
+              Footer: () => <div className="h-8" />,
             }}
           />
         )}
 
-        {/* Scroll to Bottom Button */}
         {showScrollButton && (
           <button
             onClick={scrollToBottom}
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-full shadow-lg hover:bg-accent/90 transition-all animate-in fade-in slide-in-from-bottom-2 duration-200"
+            className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-background-secondary px-3 py-1.5 text-xs font-medium text-text-secondary shadow-lg backdrop-blur-sm transition-colors hover:text-text-primary"
           >
-            <ChevronDown className="h-4 w-4" />
-            <span className="text-sm font-medium">Scroll to bottom</span>
+            <ChevronDown className="h-3.5 w-3.5" />
+            Scroll to bottom
           </button>
         )}
       </div>
 
-      {/* Input Area */}
+      {/* Input */}
       <div className="border-t border-border bg-background-secondary/50 backdrop-blur-sm">
-        <div className="max-w-4xl mx-auto p-4">
+        <div className="mx-auto max-w-3xl p-4">
           <InputArea />
         </div>
       </div>

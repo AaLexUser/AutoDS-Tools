@@ -6,7 +6,6 @@ import {
   Database,
   Package,
   Download,
-  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
@@ -18,7 +17,7 @@ import { useSession } from '@/hooks/useSessions'
 import { apiClient } from '@/lib/api/client'
 
 export function Header() {
-  const { currentSessionId, status, isStreaming } = useSessionStore()
+  const { currentSessionId, status } = useSessionStore()
   const {
     openFileExplorer,
     openDatasetManager,
@@ -62,12 +61,6 @@ export function Header() {
           )}
         </div>
 
-        {isStreaming && (
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-accent/10 border border-accent/30">
-            <Loader2 className="h-3 w-3 text-accent animate-spin" />
-            <span className="text-2xs text-accent font-medium">Running</span>
-          </div>
-        )}
       </div>
 
       {/* Right: Actions */}

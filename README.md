@@ -44,6 +44,7 @@ The main workflow:
 4. Coder implements and debugs the solution.
 5. Presenter audits and summarizes the result.
 
+
 ## Prerequisites
 
 - Python 3.12+
@@ -108,10 +109,12 @@ See [autods_config.yaml.example](autods_config.yaml.example) for the fuller temp
 
 ## Running The System
 
-### Backend
+### Server
 
 ```bash
 uv run autods-web
+# or
+uv run autods server
 ```
 
 The API listens on `http://localhost:8000` by default.
@@ -133,6 +136,27 @@ uv run autods --help
 uv run autods chat
 uv run autods exec "Solve this classification task using LightAutoML"
 uv run autods resume <session-id>
+uv run autods server
+```
+
+CLI behavior:
+
+- if `--server-url` or `AUTODS_SERVER_URL` is set, the CLI talks to that hosted server
+- otherwise, `chat`, `exec`, and `resume` auto-start a local server on `127.0.0.1:8000` if needed
+- the CLI stores a persistent principal token in `~/.autods/cli_principal_token`
+- browser and CLI can share the same hosted session namespace if they use the same principal identity
+
+Examples:
+
+```bash
+# Start an explicit local server
+uv run autods server
+
+# Run against a remote server
+AUTODS_SERVER_URL=http://my-host:8000 uv run autods exec "Train a baseline model"
+
+# Override server URL per command
+uv run autods exec --server-url http://my-host:8000 "Analyze this dataset"
 ```
 
 

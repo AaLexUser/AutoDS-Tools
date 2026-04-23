@@ -1,21 +1,20 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import { Send, Upload, Loader2, Paperclip, Square } from 'lucide-react'
+import { Send, Loader2, Paperclip, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils/cn'
 import {
   useCurrentSessionId,
   useIsStreaming,
   useSessionStatus,
   useSessionStore,
-  type Message
+  type Message,
 } from '@/stores/useSessionStore'
 import { useSendMessage } from '@/hooks/useSessions'
 import { useUploadFiles } from '@/hooks/useArtifacts'
 import { apiClient } from '@/lib/api/client'
+import { getRandomPlaceholder } from './FunStatus'
 
 export function InputArea() {
   const [input, setInput] = useState('')
@@ -23,35 +22,35 @@ export function InputArea() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Use optimized selectors
   const currentSessionId = useCurrentSessionId()
   const isStreaming = useIsStreaming()
   const status = useSessionStatus()
 
-  // Get actions directly from store (stable references)
-  const addMessage = useSessionStore((state) => state.addMessage)
-  const setStreaming = useSessionStore((state) => state.setStreaming)
-  const setStatus = useSessionStore((state) => state.setStatus)
+  const addMessage = useSessionStore(state => state.addMessage)
+  const setStreaming = useSessionStore(state => state.setStreaming)
+  const setStatus = useSessionStore(state => state.setStatus)
 
   const sendMessage = useSendMessage()
   const uploadFiles = useUploadFiles()
 
   const isCancelling = status === 'cancelling'
-  const isDisabled = !currentSessionId || isStreaming
+  const isDisabled =
+    !currentSessionId ||
+    isStreaming ||
+    status === 'connecting' ||
+    isCancelling
 
-  // Auto-resize textarea based on content
-  const adjustTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current
-    if (textarea) {
-      textarea.style.height = 'auto'
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`
+  const adjustHeight = useCallback(() => {
+    const el = textareaRef.current
+    if (el) {
+      el.style.height = 'auto'
+      el.style.height = `${Math.min(el.scrollHeight, 200)}px`
     }
   }, [])
 
-  // Adjust height when input changes
   useEffect(() => {
-    adjustTextareaHeight()
-  }, [input, adjustTextareaHeight])
+    adjustHeight()
+  }, [input, adjustHeight])
 
   const handleCancel = useCallback(async () => {
     if (!currentSessionId) return
@@ -65,184 +64,177 @@ export function InputArea() {
   const handleSubmit = useCallback(async () => {
     if (!input.trim() || !currentSessionId || isStreaming) return
 
-    const messageContent = input.trim()
+    const content = input.trim()
     setInput('')
 
-    // Add user message to store
     const userMessage: Message = {
       id: `msg-${Date.now()}`,
       role: 'user',
-      content: messageContent,
+      content,
       timestamp: new Date(),
     }
     addMessage(userMessage)
 
-    // Upload any attached files first
     if (files.length > 0) {
       try {
-        await uploadFiles.mutateAsync({
-          sessionId: currentSessionId,
-          files,
-        })
+        await uploadFiles.mutateAsync({ sessionId: currentSessionId, files })
         setFiles([])
       } catch (error) {
         console.error('Failed to upload files:', error)
       }
     }
 
-    // Send message to agent
     try {
       setStreaming(true)
       setStatus('streaming')
       await sendMessage.mutateAsync({
         sessionId: currentSessionId,
-        message: messageContent,
+        message: content,
       })
     } catch (error) {
       console.error('Failed to send message:', error)
       setStatus('error', 'Failed to send message')
       setStreaming(false)
     }
-  }, [input, currentSessionId, isStreaming, files, addMessage, setStreaming, setStatus, sendMessage, uploadFiles])
+  }, [
+    input,
+    currentSessionId,
+    isStreaming,
+    files,
+    addMessage,
+    setStreaming,
+    setStatus,
+    sendMessage,
+    uploadFiles,
+  ])
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSubmit()
-    }
-  }, [handleSubmit])
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        handleSubmit()
+      }
+    },
+    [handleSubmit],
+  )
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(e.target.files || [])
-    setFiles((prev) => [...prev, ...selectedFiles])
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
-  }, [])
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const selected = Array.from(e.target.files || [])
+      setFiles(prev => [...prev, ...selected])
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    },
+    [],
+  )
 
   const removeFile = useCallback((index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index))
+    setFiles(prev => prev.filter((_, i) => i !== index))
   }, [])
 
-  const openFileDialog = useCallback(() => {
-    fileInputRef.current?.click()
-  }, [])
-
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value)
-  }, [])
-
-  // Memoize placeholder text
   const placeholder = useMemo(() => {
-    if (isCancelling) return 'Cancelling...'
-    if (isStreaming) return 'Agent is working...'
-    return 'Describe your data science task...'
-  }, [isCancelling, isStreaming])
+    if (isCancelling) return 'Cancelling…'
+    if (status === 'connecting') return 'Reconnecting…'
+    if (isStreaming) return getRandomPlaceholder()
+    return 'Describe your data science task…'
+  }, [isCancelling, isStreaming, status])
 
   return (
-    <div className="space-y-3">
-      {/* File attachments */}
-      {files.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {files.map((file, index) => (
-            <div
-              key={index}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface border border-border text-sm"
-            >
-              <Paperclip className="h-3 w-3 text-text-muted" />
-              <span className="text-text-primary truncate max-w-[150px]">
-                {file.name}
-              </span>
-              <button
-                onClick={() => removeFile(index)}
-                className="text-text-muted hover:text-text-primary"
+    <div className="space-y-2">
+      <div
+        className={cn(
+          'overflow-hidden rounded-2xl border bg-surface transition-colors',
+          isDisabled
+            ? 'border-border opacity-60'
+            : 'border-border focus-within:border-accent/40',
+        )}
+      >
+        {/* Attached files */}
+        {files.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-4 pt-3">
+            {files.map((file, index) => (
+              <div
+                key={index}
+                className="flex items-center gap-1.5 rounded-md bg-surface-elevated px-2 py-1 text-xs"
               >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+                <Paperclip className="h-3 w-3 text-text-muted" />
+                <span className="max-w-[120px] truncate text-text-primary">
+                  {file.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeFile(index)}
+                  className="ml-0.5 text-text-muted hover:text-text-primary"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
-      {/* Input row */}
-      <div className="flex items-end gap-3">
-        {/* File upload button */}
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="secondary"
-                size="icon"
-                disabled={isDisabled}
-                onClick={openFileDialog}
-              >
-                <Upload className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Upload files</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={handleFileSelect}
-          accept=".csv,.txt,.md,.py,.json,.yaml,.yml"
+        {/* Textarea */}
+        <textarea
+          ref={textareaRef}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={isDisabled}
+          rows={1}
+          className="block w-full min-h-[44px] max-h-[200px] resize-none bg-transparent px-4 py-3 text-sm text-text-primary placeholder:text-text-muted outline-none disabled:cursor-not-allowed"
         />
 
-        {/* Message input */}
-        <div className="flex-1 relative">
-          <Textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
+        {/* Bottom toolbar */}
+        <div className="flex items-center justify-between px-3 pb-2">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
             disabled={isDisabled}
-            className={cn(
-              'min-h-[48px] max-h-[200px] pr-12 resize-none',
-              'bg-surface border-border focus:border-accent',
-              isDisabled && 'opacity-50 cursor-not-allowed'
-            )}
-            rows={1}
-          />
-        </div>
+            className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
 
-        {/* Send/Stop button */}
-        {isStreaming ? (
-          <Button
-            onClick={handleCancel}
-            disabled={isCancelling}
-            variant="destructive"
-            size="icon"
-            className="h-12 w-12"
-          >
-            {isCancelling ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+          <div className="flex items-center gap-2">
+            <span className="hidden text-[10px] text-text-muted sm:inline">
+              ↵ send · ⇧↵ newline
+            </span>
+            {isStreaming ? (
+              <Button
+                onClick={handleCancel}
+                disabled={isCancelling}
+                variant="destructive"
+                size="icon"
+                className="h-8 w-8 rounded-lg"
+              >
+                {isCancelling ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Square className="h-3.5 w-3.5" />
+                )}
+              </Button>
             ) : (
-              <Square className="h-4 w-4" />
+              <Button
+                onClick={handleSubmit}
+                disabled={isDisabled || !input.trim()}
+                size="icon"
+                className="h-8 w-8 rounded-lg"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </Button>
             )}
-          </Button>
-        ) : (
-          <Button
-            onClick={handleSubmit}
-            disabled={isDisabled || !input.trim()}
-            size="icon"
-            className="h-12 w-12"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        )}
+          </div>
+        </div>
       </div>
 
-      {/* Helper text */}
-      <p className="text-2xs text-text-muted text-center">
-        {isStreaming
-          ? 'Click stop to interrupt the agent'
-          : 'Press Enter to send, Shift+Enter for new line'}
-      </p>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileSelect}
+        accept=".csv,.txt,.md,.py,.json,.yaml,.yml"
+      />
     </div>
   )
 }

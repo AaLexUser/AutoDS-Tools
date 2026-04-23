@@ -75,7 +75,9 @@
 
   /* Markdown content styling */
   .prose-terminal {
-    @apply text-text-primary leading-relaxed;
+    @apply text-text-primary leading-relaxed overflow-hidden;
+    overflow-wrap: break-word;
+    word-break: break-word;
   }
 
   .prose-terminal h1,
@@ -94,7 +96,7 @@
   }
 
   .prose-terminal pre {
-    @apply bg-surface rounded-lg p-4 my-4 overflow-x-auto border border-border-subtle;
+    @apply bg-surface rounded-lg p-4 my-4 overflow-hidden border border-border-subtle;
   }
 
   .prose-terminal pre code {
@@ -141,35 +143,6 @@
 
   .prose-terminal hr {
     @apply border-border my-6;
-  }
-
-  /* Tool call block styling */
-  .tool-block {
-    @apply relative bg-surface rounded-lg border border-border-subtle overflow-hidden;
-  }
-
-  .tool-block::before {
-    content: '';
-    @apply absolute left-0 top-0 bottom-0 w-0.5 bg-accent;
-  }
-
-  /* Animated gradient border */
-  .gradient-border {
-    position: relative;
-  }
-
-  .gradient-border::before {
-    content: '';
-    position: absolute;
-    inset: -1px;
-    padding: 1px;
-    border-radius: inherit;
-    background: linear-gradient(135deg, rgba(34, 211, 238, 0.3), transparent 50%, rgba(34, 211, 238, 0.1));
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    pointer-events: none;
   }
 
   /* Input focus ring */

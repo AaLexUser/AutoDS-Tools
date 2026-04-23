@@ -12,7 +12,11 @@ import { useSessions, useCreateSession } from '@/hooks/useSessions'
 import { useSessionStore } from '@/stores/useSessionStore'
 
 export default function Home() {
-  const { data: sessions, isLoading: isLoadingSessions } = useSessions()
+  const {
+    data: sessions,
+    isLoading: isLoadingSessions,
+    isError: isSessionsError,
+  } = useSessions()
   const createSession = useCreateSession()
   const currentSessionId = useSessionStore((state) => state.currentSessionId)
   const setCurrentSession = useSessionStore((state) => state.setCurrentSession)
@@ -20,7 +24,7 @@ export default function Home() {
 
   // Auto-create or select session on startup
   useEffect(() => {
-    if (isLoadingSessions || initializedRef.current) return
+    if (isLoadingSessions || isSessionsError || initializedRef.current) return
 
     // If no current session, try to use most recent or create new
     if (!currentSessionId) {
@@ -35,7 +39,7 @@ export default function Home() {
         }).catch(console.error)
       }
     }
-  }, [isLoadingSessions, sessions, currentSessionId, setCurrentSession, createSession])
+  }, [isLoadingSessions, isSessionsError, sessions, currentSessionId, setCurrentSession, createSession])
 
   return (
     <TooltipProvider>

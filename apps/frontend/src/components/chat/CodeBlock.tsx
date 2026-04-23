@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, memo } from 'react'
 import { Copy, Check } from 'lucide-react'
+import { cn } from '@/lib/utils/cn'
 import hljs from 'highlight.js/lib/core'
 import python from 'highlight.js/lib/languages/python'
 import bash from 'highlight.js/lib/languages/bash'
@@ -56,9 +57,11 @@ function safeHighlight(code: string, language: string): string {
 interface CodeBlockProps {
   language: string
   code: string
+  showToolbar?: boolean
+  preClassName?: string
 }
 
-function CodeBlockComponent({ language, code }: CodeBlockProps) {
+function CodeBlockComponent({ language, code, showToolbar = true, preClassName }: CodeBlockProps) {
   const [copied, setCopied] = useState(false)
 
   const highlighted = useMemo(() => {
@@ -73,30 +76,30 @@ function CodeBlockComponent({ language, code }: CodeBlockProps) {
   }, [code])
 
   return (
-    <div className="relative group">
+    <div className="relative group min-w-0">
       {/* Language badge & copy button */}
-      <div className="absolute top-2 right-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <span className="text-2xs px-1.5 py-0.5 rounded bg-surface-elevated text-text-muted font-mono">
-          {language}
-        </span>
-        <button
-          onClick={handleCopy}
-          className="p-1.5 rounded bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary transition-colors"
-        >
-          {copied ? (
-            <Check className="h-3.5 w-3.5 text-status-success" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" />
-          )}
-        </button>
-      </div>
+      {showToolbar && (
+        <div className="absolute top-2 right-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <span className="text-2xs px-1.5 py-0.5 rounded bg-surface-elevated text-text-muted font-mono">
+            {language}
+          </span>
+          <button
+            onClick={handleCopy}
+            className="p-1.5 rounded bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary transition-colors"
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-status-success" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Code content */}
-      <div className="overflow-x-auto">
-        <pre className="p-4 text-sm leading-relaxed">
-          <code dangerouslySetInnerHTML={{ __html: highlighted }} />
-        </pre>
-      </div>
+      <pre className={cn('p-4 text-sm leading-relaxed whitespace-pre-wrap break-words', preClassName)}>
+        <code dangerouslySetInnerHTML={{ __html: highlighted }} />
+      </pre>
     </div>
   )
 }

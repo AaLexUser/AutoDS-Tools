@@ -2,7 +2,23 @@ export interface Session {
   id: string
   created_at: string
   updated_at: string
+  status: 'idle' | 'running' | 'cancelling' | 'error'
   folder_size: number
+}
+
+export interface TranscriptMessage {
+  id: string
+  role: 'user' | 'assistant' | 'environment'
+  content: string
+  timestamp: string
+  isStreaming?: boolean
+  isTruncated?: boolean
+}
+
+export interface TranscriptResponse {
+  session_id: string
+  status: 'idle' | 'running' | 'cancelling' | 'error'
+  messages: TranscriptMessage[]
 }
 
 export interface ArtifactNode {
@@ -26,12 +42,44 @@ interface ArtifactResponse {
 }
 
 function getBaseUrl() {
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL
+  }
+
+  if (typeof window !== 'undefined') {
+    return `${window.location.protocol}//${window.location.hostname}:8000`
+  }
+
+  return 'http://localhost:8000'
+}
+
+let bootstrapPromise: Promise<void> | null = null
+
+async function ensureBrowserBootstrap() {
+  if (typeof window === 'undefined') return
+  if (!bootstrapPromise) {
+    bootstrapPromise = fetch(`${getBaseUrl()}/api/bootstrap`, {
+      method: 'POST',
+      credentials: 'include',
+    }).then(async (response) => {
+      if (!response.ok) {
+        throw new Error(await response.text() || 'Failed to bootstrap browser session')
+      }
+    }).catch((error) => {
+      bootstrapPromise = null
+      throw error
+    })
+  }
+
+  return bootstrapPromise
 }
 
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
+  await ensureBrowserBootstrap()
+
   const response = await fetch(`${getBaseUrl()}${input}`, {
     ...init,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers || {}),
@@ -58,6 +106,10 @@ function sortSessions(sessions: Session[]) {
 }
 
 export const apiClient = {
+  async bootstrap() {
+    await ensureBrowserBootstrap()
+  },
+
   async createSession() {
     return fetchJson<Session>('/api/sessions', { method: 'POST' })
   },
@@ -71,6 +123,12 @@ export const apiClient = {
     return fetchJson<Session>(`/api/sessions/${sessionId}`)
   },
 
+  async getTranscript(sessionId: string) {
+    return fetchJson<TranscriptResponse>(
+      `/api/sessions/${sessionId}/transcript`
+    )
+  },
+
   async deleteSession(sessionId: string) {
     return fetchJson<{ status: string; session_id: string }>(`/api/sessions/${sessionId}`, {
       method: 'DELETE',
@@ -78,17 +136,14 @@ export const apiClient = {
   },
 
   async sendMessage(sessionId: string, message: string) {
-    return fetchJson<{ status: string; session_id: string }>('/api/chat', {
+    return fetchJson<{ status: string; session_id: string }>(`/api/sessions/${sessionId}/runs`, {
       method: 'POST',
-      body: JSON.stringify({
-        session_id: sessionId,
-        message,
-      }),
+      body: JSON.stringify({ message }),
     })
   },
 
   async cancelSession(sessionId: string) {
-    return fetchJson<{ status: string; session_id: string }>(`/api/session/${sessionId}/cancel`, {
+    return fetchJson<{ status: string; session_id: string }>(`/api/sessions/${sessionId}/cancel`, {
       method: 'POST',
     })
   },
@@ -99,8 +154,11 @@ export const apiClient = {
       formData.append('files', file)
     }
 
-    const response = await fetch(`${getBaseUrl()}/api/session/${sessionId}/dataset`, {
+    await ensureBrowserBootstrap()
+
+    const response = await fetch(`${getBaseUrl()}/api/sessions/${sessionId}/dataset`, {
       method: 'POST',
+      credentials: 'include',
       body: formData,
     })
 
@@ -113,7 +171,7 @@ export const apiClient = {
 
   async installLibraries(sessionId: string, libraries: string[]) {
     return fetchJson<{ status: string; installed?: string[]; output?: string }>(
-      `/api/session/${sessionId}/install`,
+      `/api/sessions/${sessionId}/install`,
       {
         method: 'POST',
         body: JSON.stringify({ libraries }),
@@ -122,7 +180,7 @@ export const apiClient = {
   },
 
   async getArtifacts(sessionId: string): Promise<ArtifactNode | null> {
-    const data = await fetchJson<ArtifactResponse>(`/api/session/${sessionId}/artifacts`)
+    const data = await fetchJson<ArtifactResponse>(`/api/sessions/${sessionId}/artifacts`)
     return {
       type: 'directory',
       name: 'artifacts',
@@ -132,8 +190,13 @@ export const apiClient = {
   },
 
   async getFile(sessionId: string, filePath: string) {
+    await ensureBrowserBootstrap()
+
     const response = await fetch(
-      `${getBaseUrl()}/api/session/${sessionId}/file?file_path=${encodeURIComponent(filePath)}`
+      `${getBaseUrl()}/api/sessions/${sessionId}/file?file_path=${encodeURIComponent(filePath)}`,
+      {
+        credentials: 'include',
+      }
     )
 
     if (!response.ok) {
@@ -166,7 +229,7 @@ export const apiClient = {
   },
 
   getArchiveUrl(sessionId: string) {
-    return `${getBaseUrl()}/api/session/${sessionId}/artifacts/archive`
+    return `${getBaseUrl()}/api/sessions/${sessionId}/artifacts/archive`
   },
 
   getWebSocketUrl(sessionId: string) {

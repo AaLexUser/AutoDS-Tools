@@ -1,30 +1,34 @@
-import asyncio
+from __future__ import annotations
+
 import os
-import sys
-import traceback
+import secrets
+import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Optional, Protocol
 
 import click
+import httpx
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
 
-from autods.agents.autods.autods import AutoDSAgent
-from autods.agents.base import BaseAgent
-from autods.callbacks.printer import MessageStreamPrinter
-from autods.callbacks.tracer import Tracer
-from autods.runtime.runner import AgentRunner
-from autods.sessions import SessionMetadata, SessionNotFoundError, SessionService
-from autods.utils.config import load_config
+from autods.constants import AUTODS_HOME
+from autods.logging import setup_logging
 from autods_web.server import start_web_server
 
 _ = load_dotenv()
 
 console = Console()
+
+DEFAULT_LOCAL_HOST = "127.0.0.1"
+DEFAULT_LOCAL_PORT = 8000
+DEFAULT_SERVER_URL_ENV = "AUTODS_SERVER_URL"
+PRINCIPAL_TOKEN_ENV = "AUTODS_PRINCIPAL_TOKEN"
+PRINCIPAL_TOKEN_PATH = AUTODS_HOME / "cli_principal_token"
+PRINCIPAL_HEADER = "X-AutoDS-Principal"
 
 
 class AgentCLIOptions(BaseModel):
@@ -39,7 +43,7 @@ class AgentCLIOptions(BaseModel):
     trace_file: Optional[str] = None
 
     @staticmethod
-    def agent_options(func: Callable[..., Any]) -> Callable[..., Any]:
+    def agent_options(func):
         options = [
             click.option("--provider", "-p", help="LLM provider to use"),
             click.option("--model", "-m", help="Specific model to use"),
@@ -48,19 +52,14 @@ class AgentCLIOptions(BaseModel):
             click.option(
                 "--max-steps", type=int, help="Maximum LangGraph recursion steps"
             ),
+            click.option("--config-file", help="Path to configuration file"),
             click.option(
-                "--config-file",
-                help="Path to configuration file",
-            ),
-            click.option(
-                "--trace-debug",
-                is_flag=True,
-                help="Capture LangGraph debug events into a tracing YAML file.",
+                "--trace-debug", is_flag=True, help="Enable debug tracing on the server"
             ),
             click.option(
                 "--trace-file",
                 type=click.Path(dir_okay=False, path_type=Path),
-                help="Destination file for debug tracing output.",
+                help="Trace file path for server-side debugging",
             ),
         ]
         for option in reversed(options):
@@ -74,11 +73,9 @@ class AgentCLIOptions(BaseModel):
                 return None
             if isinstance(value, (str, Path, os.PathLike)):
                 return str(value)
-            if hasattr(value, "__class__") and value.__class__.__name__ == "Sentinel":
-                return None
             return value
 
-        return AgentCLIOptions(
+        return cls(
             provider=_normalize(kwargs.get("provider")),
             model=_normalize(kwargs.get("model")),
             model_base_url=_normalize(kwargs.get("model_base_url")),
@@ -91,100 +88,55 @@ class AgentCLIOptions(BaseModel):
         )
 
 
-def _load_app_config(cli_opts: AgentCLIOptions):
-    return load_config(
-        provider=cli_opts.provider,
-        model=cli_opts.model,
-        model_base_url=cli_opts.model_base_url,
-        api_key=cli_opts.api_key,
-        max_steps=cli_opts.max_steps,
-        config_file=cli_opts.config_file,
-    )
+class RemoteSession(BaseModel):
+    id: str
+    created_at: str
+    updated_at: str
+    status: str
+    folder_size: int = 0
 
 
-def _build_runner(
-    cli_opts: AgentCLIOptions, session: SessionMetadata, agent: BaseAgent
-) -> AgentRunner:
-    """Create an AgentRunner with configured settings."""
-    recursion_limit = cli_opts.max_steps or 200
-    return AgentRunner(
-        agent=agent,
-        project_path=cli_opts.project_path,
-        recursion_limit=recursion_limit,
-        session=session,
-    )
+class TranscriptMessageModel(BaseModel):
+    id: str
+    role: str
+    content: str
+    timestamp: str
+    isStreaming: bool = False
+    isTruncated: bool = False
 
 
-def _build_tracer(cli_opts: AgentCLIOptions) -> Tracer | None:
-    """Create tracer if debug tracing is enabled."""
-    if not cli_opts.trace_debug and not cli_opts.trace_file:
-        return None
-    trace_path = cli_opts.trace_file
-    return Tracer(trace_path) if trace_path else Tracer()
+class TranscriptModel(BaseModel):
+    session_id: str
+    status: str
+    messages: list[TranscriptMessageModel]
 
 
-def _build_stream_callbacks(
-    stream_printer: MessageStreamPrinter, tracer: Tracer | None
-) -> list[Callable[[str, Any], Awaitable[None]]]:
-    """Build stream callbacks for agent execution."""
-    callbacks: list[Callable[[str, Any], Awaitable[None]]] = [
-        stream_printer.print_chunk_callback
-    ]
-    if tracer is not None:
-        callbacks.append(tracer.tracing_callback)
-    return callbacks
+class SessionClient(Protocol):
+    def create_session(self) -> RemoteSession: ...
+    def list_sessions(self) -> list[RemoteSession]: ...
+    def get_session(self, session_id: str) -> RemoteSession: ...
+    def get_transcript(self, session_id: str) -> TranscriptModel: ...
+    def cancel_session(self, session_id: str) -> None: ...
+    def run_once(self, message: str, session_id: str | None = None) -> str: ...
+    def stream_session_until_idle(
+        self,
+        session_id: str,
+        *,
+        seen_messages: int = 0,
+        include_user: bool = False,
+        poll_interval: float = 0.25,
+    ) -> int: ...
 
 
-def _setup_common_components(cli_opts: AgentCLIOptions):
-    """Setup common CLI components: stream printer, tracer, session service."""
-    stream_printer = MessageStreamPrinter()
-    tracer = _build_tracer(cli_opts)
-    session_service = SessionService()
-
-    if tracer is not None:
-        console.print(
-            f"[blue]Debug tracing enabled:[/blue] {tracer.file_path}", soft_wrap=True
-        )
-
-    return stream_printer, tracer, session_service
+@dataclass(frozen=True)
+class CliRuntime:
+    server_url: str
+    principal_token: str
+    started_local: bool
+    client: SessionClient
 
 
-def _get_or_create_session(
-    session_id: Optional[str], session_service: SessionService
-) -> SessionMetadata:
-    """Get existing session or create new one."""
-    if session_id:
-        try:
-            return session_service.get_session(session_id)
-        except SessionNotFoundError as exc:
-            raise click.ClickException(f"Session not found: {session_id}") from exc
-    return session_service.create_session()
-
-
-def _handle_task_input(task: Optional[str], file_path: Optional[str]) -> str:
-    """Handle task input from argument or file."""
-    if file_path and task:
-        raise click.ClickException("Provide either inline task or --file, not both")
-
-    if file_path:
-        try:
-            return Path(file_path).read_text().strip()
-        except FileNotFoundError as exc:
-            raise click.ClickException(f"File not found: {file_path}") from exc
-
-    if not task:
-        raise click.ClickException("Task is required")
-
-    return task
-
-
-# ==============================================================================
-# Common CLI options
-# ==============================================================================
-
-
-def common_options(func: Callable[..., Any]) -> Callable[..., Any]:
-    """Add common CLI options that are shared across commands."""
+def common_options(func):
     options = [
         click.option(
             "--file",
@@ -195,195 +147,227 @@ def common_options(func: Callable[..., Any]) -> Callable[..., Any]:
         click.option(
             "--project-path", "-w", help="Project workspace path for the agent."
         ),
+        click.option(
+            "--server-url",
+            help="Hosted API base URL. Defaults to AUTODS_SERVER_URL or local auto-start.",
+        ),
+        click.option(
+            "--api-host",
+            default=DEFAULT_LOCAL_HOST,
+            help="Local API host for auto-start.",
+        ),
+        click.option(
+            "--api-port",
+            default=DEFAULT_LOCAL_PORT,
+            type=int,
+            help="Local API port for auto-start.",
+        ),
     ]
     for option in reversed(options):
         func = option(func)
     return func
 
 
-# ==============================================================================
-# Async execution helpers
-# ==============================================================================
+def _handle_task_input(task: Optional[str], file_path: Optional[str]) -> str:
+    if file_path and task:
+        raise click.ClickException("Provide either inline task or --file, not both")
+    if file_path:
+        path = Path(file_path)
+        if not path.exists():
+            raise click.ClickException(f"File not found: {file_path}")
+        return path.read_text().strip()
+    if not task:
+        raise click.ClickException("Task is required")
+    return task
 
 
-async def _display_history(
-    runner: AgentRunner,
-    stream_printer: MessageStreamPrinter,
-    user_message: str | None = None,
-):
-    """Display conversation history and optionally add user message."""
-    state = await runner.get_state()
-    messages = state.values.get("messages") or []
-    if user_message:
-        messages.append(HumanMessage(content=user_message))
-    for msg in messages:
-        stream_printer.handle(msg)
+def build_server_options(cli_opts: AgentCLIOptions) -> dict[str, Any]:
+    agent_options = {
+        "provider": cli_opts.provider,
+        "model": cli_opts.model,
+        "model_base_url": cli_opts.model_base_url,
+        "api_key": cli_opts.api_key,
+        "max_steps": cli_opts.max_steps,
+        "config_file": cli_opts.config_file,
+        "project_path": cli_opts.project_path,
+        "trace_debug": cli_opts.trace_debug,
+        "trace_file": cli_opts.trace_file,
+    }
+    return {key: value for key, value in agent_options.items() if value is not None}
 
 
-async def _run_chat_loop(
-    runner: AgentRunner,
-    stream_printer: MessageStreamPrinter,
-    session_service: SessionService,
-    session: SessionMetadata,
-    tracer: Tracer | None,
+def load_or_create_principal_token() -> str:
+    env_token = os.environ.get(PRINCIPAL_TOKEN_ENV)
+    if env_token:
+        return env_token
+    PRINCIPAL_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if PRINCIPAL_TOKEN_PATH.exists():
+        return PRINCIPAL_TOKEN_PATH.read_text().strip()
+    token = f"cli-{secrets.token_urlsafe(24)}"
+    PRINCIPAL_TOKEN_PATH.write_text(token)
+    return token
+
+
+def is_server_healthy(server_url: str, principal_token: str) -> bool:
+    try:
+        response = httpx.get(
+            f"{server_url.rstrip('/')}/health",
+            headers={PRINCIPAL_HEADER: principal_token},
+            timeout=1.0,
+        )
+        return response.status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+def wait_for_server(
+    server_url: str, principal_token: str, timeout_s: float = 10.0
 ) -> None:
-    """Run interactive chat loop with error handling."""
-    try:
-        while True:
-            # Run blocking prompt in a thread to avoid blocking the event loop
-            message = await asyncio.to_thread(Prompt.ask, ">")
-            if not isinstance(message, str):
-                continue
-
-            user_msg = HumanMessage(content=message)
-            stream_printer.handle(user_msg)
-            await runner.astream(
-                message,
-                callbacks=_build_stream_callbacks(stream_printer, tracer),
-                debug=tracer is not None,
-            )
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Task execution interrupted by user[/yellow]")
-        console.print(f"\n[green]To resume run: autods resume {session.id}[/green]")
-        sys.exit(1)
-    except Exception as e:
-        console.print(f"\n[red]Unexpected error: {e}[/red]")
-        console.print(traceback.format_exc())
-        sys.exit(1)
-    finally:
-        session_service.upsert_session(session)
-        stream_printer.flush()
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if is_server_healthy(server_url, principal_token):
+            return
+        time.sleep(0.2)
+    raise click.ClickException(f"Server did not become healthy at {server_url}")
 
 
-async def _execute_with_handling(
-    coro,
-    session_service: SessionService,
-    session: SessionMetadata,
-    stream_printer: MessageStreamPrinter,
-    session_id_for_resume: Optional[str] = None,
-):
-    """Common async execution with error handling and cleanup."""
-    try:
-        return await coro
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Task execution interrupted by user[/yellow]")
-        if session_id_for_resume:
-            console.print(
-                f"\n[green]To resume run: autods resume {session_id_for_resume}[/green]"
-            )
-        sys.exit(1)
-    except Exception as e:
-        console.print(f"\n[red]Unexpected error: {e}[/red]")
-        console.print(traceback.format_exc())
-        sys.exit(1)
-    finally:
-        session_service.upsert_session(session)
-        stream_printer.flush()
+def prepare_cli_connection(
+    server_url: str | None,
+    *,
+    api_host: str = DEFAULT_LOCAL_HOST,
+    api_port: int = DEFAULT_LOCAL_PORT,
+    agent_options: dict[str, Any] | None = None,
+) -> tuple[str, str, bool]:
+    resolved_url = server_url or os.environ.get(DEFAULT_SERVER_URL_ENV)
+    principal_token = load_or_create_principal_token()
 
+    if resolved_url:
+        return resolved_url.rstrip("/"), principal_token, False
 
-@click.group(invoke_without_command=True)
-@click.version_option(version="0.1.0")
-@click.pass_context
-def cli(ctx: click.Context) -> None:
-    """Autods Agent - LLM-based agent for automl tasks."""
-    if ctx.invoked_subcommand is None:
-        ctx.invoke(chat)
+    local_url = f"http://{api_host}:{api_port}"
+    if is_server_healthy(local_url, principal_token):
+        return local_url, principal_token, False
 
-
-# ==============================================================================
-# CLI Commands
-# ==============================================================================
-
-
-@AgentCLIOptions.agent_options
-@common_options
-@cli.command()
-@click.argument("task", required=False)
-@click.option(
-    "--session-id", help="Resume execution using the specified session identifier."
-)
-def exec(
-    task: str | None, file_path: str | None, session_id: str | None, **kwargs: Any
-):
-    """Execute a single AutoDS task."""
-    cli_opts = AgentCLIOptions.from_args(kwargs)
-    stream_printer, tracer, session_service = _setup_common_components(cli_opts)
-
-    inline_task = _handle_task_input(task, file_path)
-    selected_session = _get_or_create_session(session_id, session_service)
-
-    app_config = _load_app_config(cli_opts)
-    agent = AutoDSAgent(app_config, cli_opts.project_path)
-    runner = _build_runner(cli_opts, selected_session, agent)
-
-    async def _exec_task():
-        await _display_history(
-            runner=runner, stream_printer=stream_printer, user_message=inline_task
-        )
-        await runner.astream(
-            inline_task,
-            callbacks=_build_stream_callbacks(stream_printer, tracer),
-            debug=tracer is not None,
-        )
-
-    asyncio.run(
-        _execute_with_handling(
-            _exec_task(),
-            session_service,
-            selected_session,
-            stream_printer,
-            selected_session.id,
-        )
+    process = start_web_server(
+        api_host,
+        api_port,
+        background=True,
+        agent_options=agent_options or {},
     )
+    if process is None:
+        raise click.ClickException("Failed to start local AutoDS server")
+    wait_for_server(local_url, principal_token)
+    return local_url, principal_token, True
 
 
-@AgentCLIOptions.agent_options
-@cli.command()
-def chat(**kwargs: Any):
-    """Start an interactive chat session with AutoDS agent."""
-    cli_opts = AgentCLIOptions.from_args(kwargs)
-    stream_printer, tracer, session_service = _setup_common_components(cli_opts)
-
-    # Create new session for chat
-    session = session_service.create_session()
-
-    # Initialize agent and runner
-    app_config = _load_app_config(cli_opts)
-    agent = AutoDSAgent(app_config, cli_opts.project_path)
-    runner = _build_runner(cli_opts, session, agent)
-
-    async def _chat_session() -> None:
-        await _display_history(runner=runner, stream_printer=stream_printer)
-        await _run_chat_loop(
-            runner=runner,
-            stream_printer=stream_printer,
-            session_service=session_service,
-            session=session,
-            tracer=tracer,
+class HostedApiClient:
+    def __init__(
+        self,
+        server_url: str,
+        principal_token: str,
+        timeout: float = 30.0,
+        client: httpx.Client | None = None,
+    ) -> None:
+        self.server_url = server_url.rstrip("/")
+        self.principal_token = principal_token
+        self._client = client or httpx.Client(
+            base_url=self.server_url,
+            headers={PRINCIPAL_HEADER: principal_token},
+            timeout=timeout,
         )
 
-    asyncio.run(_chat_session())
+    def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        response = self._client.request(method, path, **kwargs)
+        if response.is_success:
+            return response
+        detail = (
+            response.text.strip()
+            or f"Request failed with status {response.status_code}"
+        )
+        raise click.ClickException(detail)
+
+    def create_session(self) -> RemoteSession:
+        response = self._request("POST", "/api/sessions")
+        return RemoteSession.model_validate(response.json())
+
+    def list_sessions(self) -> list[RemoteSession]:
+        response = self._request("GET", "/api/sessions")
+        return [RemoteSession.model_validate(item) for item in response.json()]
+
+    def get_session(self, session_id: str) -> RemoteSession:
+        response = self._request("GET", f"/api/sessions/{session_id}")
+        return RemoteSession.model_validate(response.json())
+
+    def get_transcript(self, session_id: str) -> TranscriptModel:
+        response = self._request("GET", f"/api/sessions/{session_id}/transcript")
+        return TranscriptModel.model_validate(response.json())
+
+    def start_run(self, session_id: str, message: str) -> None:
+        self._request(
+            "POST",
+            f"/api/sessions/{session_id}/runs",
+            json={"message": message},
+        )
+
+    def cancel_session(self, session_id: str) -> None:
+        self._request("POST", f"/api/sessions/{session_id}/cancel")
+
+    def run_once(self, message: str, session_id: str | None = None) -> str:
+        selected_session = session_id or self.create_session().id
+        self.start_run(selected_session, message)
+        return selected_session
+
+    def stream_session_until_idle(
+        self,
+        session_id: str,
+        *,
+        seen_messages: int = 0,
+        include_user: bool = False,
+        poll_interval: float = 0.5,
+    ) -> int:
+        while True:
+            transcript = self.get_transcript(session_id)
+            new_messages = transcript.messages[seen_messages:]
+            if new_messages:
+                render_messages(new_messages, include_user=include_user)
+                seen_messages = len(transcript.messages)
+
+            if transcript.status == "idle":
+                return seen_messages
+            if transcript.status == "error":
+                raise click.ClickException(f"Session {session_id} ended in error")
+            time.sleep(poll_interval)
 
 
-def _print_sessions_table(sessions: list[SessionMetadata]) -> None:
+def render_messages(
+    messages: list[TranscriptMessageModel],
+    *,
+    include_user: bool = False,
+) -> None:
+    for message in messages:
+        if message.role == "user" and not include_user:
+            continue
+        if message.role == "assistant":
+            console.print(message.content)
+            continue
+        if message.role == "environment":
+            console.print(f"[dim]{message.content}[/dim]")
+            continue
+        console.print(f"[cyan]You:[/cyan] {message.content}")
+
+
+def _print_sessions_table(sessions: list[RemoteSession]) -> None:
     table = Table(title="Saved sessions")
     table.add_column("#", style="cyan", justify="right")
     table.add_column("Session ID", style="green")
-    table.add_column("Created")
+    table.add_column("Status")
     table.add_column("Updated")
-    for idx, session in enumerate(sessions, start=1):
-        table.add_row(
-            str(idx),
-            session.id,
-            session.created_at.strftime("%H:%M:%S %d/%m/%Y"),
-            session.updated_at.strftime("%H:%M:%S %d/%m/%Y"),
-        )
+    for index, session in enumerate(sessions, start=1):
+        table.add_row(str(index), session.id, session.status, session.updated_at)
     console.print(table)
 
 
-def _prompt_for_session_selection(
-    sessions: list[SessionMetadata],
-) -> SessionMetadata:
+def _prompt_for_session_selection(sessions: list[RemoteSession]) -> RemoteSession:
     if not sessions:
         raise click.ClickException("No sessions available to resume")
     max_display = min(len(sessions), 10)
@@ -395,85 +379,214 @@ def _prompt_for_session_selection(
     return display_sessions[int(choice) - 1]
 
 
+def build_cli_runtime(
+    cli_opts: AgentCLIOptions,
+    *,
+    server_url: str | None,
+    api_host: str,
+    api_port: int,
+) -> CliRuntime:
+    resolved_url, principal_token, started_local = prepare_cli_connection(
+        server_url,
+        api_host=api_host,
+        api_port=api_port,
+        agent_options=build_server_options(cli_opts),
+    )
+    return CliRuntime(
+        server_url=resolved_url,
+        principal_token=principal_token,
+        started_local=started_local,
+        client=HostedApiClient(resolved_url, principal_token),
+    )
+
+
+@click.group(invoke_without_command=True)
+@click.version_option(version="0.1.0")
+@click.pass_context
+def cli(ctx: click.Context) -> None:
+    """Autods Agent - hosted client and local server entrypoint."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(chat)
+
+
+@AgentCLIOptions.agent_options
+@common_options
+@cli.command()
+@click.argument("task", required=False)
+@click.option("--session-id", help="Run inside an existing hosted session.")
+def exec(
+    task: str | None,
+    file_path: str | None,
+    session_id: str | None,
+    server_url: str | None,
+    api_host: str,
+    api_port: int,
+    **kwargs: Any,
+) -> None:
+    """Execute a single task against the hosted session service."""
+    cli_opts = AgentCLIOptions.from_args(kwargs)
+    runtime = build_cli_runtime(
+        cli_opts,
+        server_url=server_url,
+        api_host=api_host,
+        api_port=api_port,
+    )
+    if runtime.started_local:
+        console.print(f"[dim]Started local AutoDS server at {runtime.server_url}[/dim]")
+    inline_task = _handle_task_input(task, file_path)
+    selected_session = runtime.client.run_once(inline_task, session_id=session_id)
+    runtime.client.stream_session_until_idle(selected_session)
+    console.print(f"[dim]Session: {selected_session}[/dim]")
+
+
+@AgentCLIOptions.agent_options
+@common_options
+@cli.command()
+def chat(
+    file_path: str | None = None,
+    project_path: str | None = None,
+    server_url: str | None = None,
+    api_host: str = DEFAULT_LOCAL_HOST,
+    api_port: int = DEFAULT_LOCAL_PORT,
+    **kwargs: Any,
+) -> None:
+    """Start an interactive chat against the hosted server."""
+    cli_opts = AgentCLIOptions.from_args({**kwargs, "project_path": project_path})
+    runtime = build_cli_runtime(
+        cli_opts,
+        server_url=server_url,
+        api_host=api_host,
+        api_port=api_port,
+    )
+    if runtime.started_local:
+        console.print(f"[dim]Started local AutoDS server at {runtime.server_url}[/dim]")
+    session_id = runtime.client.create_session().id
+    seen_messages = 0
+
+    while True:
+        try:
+            message = Prompt.ask(">")
+        except (EOFError, KeyboardInterrupt):
+            console.print()
+            return
+        if not isinstance(message, str):
+            continue
+        stripped = message.strip()
+        if not stripped:
+            continue
+        if stripped in {"exit", "quit"}:
+            return
+
+        runtime.client.run_once(stripped, session_id=session_id)
+        seen_messages = runtime.client.stream_session_until_idle(
+            session_id,
+            seen_messages=seen_messages,
+        )
+
+
 @AgentCLIOptions.agent_options
 @common_options
 @cli.command()
 @click.argument("session_id", required=False)
-def resume(session_id: Optional[str], **kwargs: Any):
-    """Resume an existing session or start new chat session."""
-    cli_opts = AgentCLIOptions.from_args(kwargs)
-    stream_printer, tracer, session_service = _setup_common_components(cli_opts)
+def resume(
+    session_id: str | None,
+    file_path: str | None,
+    project_path: str | None,
+    server_url: str | None,
+    api_host: str,
+    api_port: int,
+    **kwargs: Any,
+) -> None:
+    """Resume an existing hosted session."""
+    cli_opts = AgentCLIOptions.from_args({**kwargs, "project_path": project_path})
+    runtime = build_cli_runtime(
+        cli_opts,
+        server_url=server_url,
+        api_host=api_host,
+        api_port=api_port,
+    )
+    if runtime.started_local:
+        console.print(f"[dim]Started local AutoDS server at {runtime.server_url}[/dim]")
+    sessions = runtime.client.list_sessions()
+    selected = (
+        runtime.client.get_session(session_id)
+        if session_id
+        else _prompt_for_session_selection(sessions)
+    )
 
-    # Get sessions list and handle selection
-    sessions = session_service.list_sessions()
-    if not sessions:
-        raise click.ClickException("No sessions available to resume")
+    transcript = runtime.client.get_transcript(selected.id)
+    if transcript.messages:
+        render_messages(transcript.messages, include_user=True)
+    seen_messages = len(transcript.messages)
 
-    if session_id:
-        session = _get_or_create_session(session_id, session_service)
-    else:
-        session = _prompt_for_session_selection(sessions)
+    while True:
+        try:
+            message = Prompt.ask(">")
+        except (EOFError, KeyboardInterrupt):
+            console.print()
+            return
+        if not isinstance(message, str):
+            continue
+        stripped = message.strip()
+        if not stripped:
+            continue
+        if stripped in {"exit", "quit"}:
+            return
 
-    # Initialize agent and runner
-    app_config = _load_app_config(cli_opts)
-    agent = AutoDSAgent(app_config, cli_opts.project_path)
-    runner = _build_runner(cli_opts, session, agent)
-
-    async def _resume_session() -> None:
-        await _display_history(runner=runner, stream_printer=stream_printer)
-        await _run_chat_loop(
-            runner=runner,
-            stream_printer=stream_printer,
-            session_service=session_service,
-            session=session,
-            tracer=tracer,
+        runtime.client.run_once(stripped, session_id=selected.id)
+        seen_messages = runtime.client.stream_session_until_idle(
+            selected.id,
+            seen_messages=seen_messages,
         )
 
-    asyncio.run(_resume_session())
+
+def _run_server_command(
+    api_host: str,
+    api_port: int,
+    background: bool,
+    cli_opts: AgentCLIOptions,
+) -> None:
+    agent_options = build_server_options(cli_opts)
+    process = start_web_server(
+        api_host,
+        api_port,
+        background=background,
+        agent_options=agent_options,
+    )
+    if background:
+        if process is None:
+            raise click.ClickException("Failed to start API server")
+        console.print(f"API: http://{api_host}:{api_port}")
 
 
 @AgentCLIOptions.agent_options
-@cli.command()
-@click.option("--api-host", default="localhost", help="API server host")
-@click.option("--api-port", default=8000, type=int, help="API server port")
+@cli.command(name="server")
+@click.option("--api-host", default=DEFAULT_LOCAL_HOST, help="API server host")
+@click.option(
+    "--api-port", default=DEFAULT_LOCAL_PORT, type=int, help="API server port"
+)
 @click.option("--background", is_flag=True, help="Run API server in background")
-def web(api_host: str, api_port: int, background: bool, **kwargs):
-    cli_opts = AgentCLIOptions.from_args(kwargs)
-
-    agent_options = {
-        "provider": cli_opts.provider,
-        "model": cli_opts.model,
-        "model_base_url": cli_opts.model_base_url,
-        "api_key": cli_opts.api_key,
-        "max_steps": cli_opts.max_steps,
-        "config_file": cli_opts.config_file,
-        "project_path": cli_opts.project_path,
-    }
-    agent_options = {k: v for k, v in agent_options.items() if v is not None}
-
-    if background:
-        proc = start_web_server(
-            api_host,
-            api_port,
-            background=True,
-            agent_options=agent_options,
-        )
-        if proc:
-            console.print("API сервер запущен в фоновом режиме")
-            console.print(f"API: http://{api_host}:{api_port}")
-            console.print("\nИспользуйте команды системы для остановки процесса")
-        else:
-            console.print("[red]Ошибка запуска API сервера[/red]")
-            sys.exit(1)
-    else:
-        start_web_server(
-            api_host,
-            api_port,
-            background=False,
-            agent_options=agent_options,
-        )
+def server(api_host: str, api_port: int, background: bool, **kwargs: Any) -> None:
+    """Start the hosted AutoDS API server explicitly."""
+    _run_server_command(
+        api_host, api_port, background, AgentCLIOptions.from_args(kwargs)
+    )
 
 
-def main():
+@AgentCLIOptions.agent_options
+@cli.command(name="web", hidden=True)
+@click.option("--api-host", default=DEFAULT_LOCAL_HOST, help="API server host")
+@click.option(
+    "--api-port", default=DEFAULT_LOCAL_PORT, type=int, help="API server port"
+)
+@click.option("--background", is_flag=True, help="Run API server in background")
+def web(api_host: str, api_port: int, background: bool, **kwargs: Any) -> None:
+    _run_server_command(
+        api_host, api_port, background, AgentCLIOptions.from_args(kwargs)
+    )
+
+
+def main() -> None:
     """Entry point for the autods CLI."""
+    setup_logging(console=False)
     cli()

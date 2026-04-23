@@ -83,4 +83,7 @@ class IPythonTool(BaseTool):
         if not observation.is_success:
             raise ToolError(observation.message or "Notebook execution failed.")
 
-        return HumanMessage(content=await _observation_to_content(observation))
+        return HumanMessage(
+            content=await _observation_to_content(observation),
+            role="tool",
+        )

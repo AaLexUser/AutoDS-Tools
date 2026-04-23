@@ -210,10 +210,7 @@ class OneShotPlanner(AutoDSTaskInference):
             and report_path.stat().st_size > 0
             and report_path.read_text(encoding="utf-8").strip() != ""
         ):
-            report = report_path.read_text(encoding="utf-8")
-            return Command(
-                update={"messages": state.append_messages([AIMessage(content=report)])}
-            )
+            return state
         else:
             history = state["messages"]
             prompt = self.prompt_generator.react_prompt(history)
@@ -223,10 +220,9 @@ class OneShotPlanner(AutoDSTaskInference):
                 if "No generations found in stream" in str(e):
                     return Command(goto=END)
                 raise
-            report_path.write_text(response.content)
-            return Command(
-                update={"messages": state.append_messages([response])}, goto="think"
-            )
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(response.content, encoding="utf-8")
+            return state
 
 
 class OneShotAnalystSaveReport(AutoDSTaskInference):
@@ -239,6 +235,7 @@ class OneShotAnalystSaveReport(AutoDSTaskInference):
             report_path.parent.mkdir(parents=True, exist_ok=True)
             report_path.touch()
         report_path.write_text(report, encoding="utf-8")
+        state.replace_messages(state.messages[:-1])
         return state
 
 
@@ -261,7 +258,9 @@ class ResearcherSaveReport(AutoDSTaskInference):
     ) -> AutoDSState | Command[Any]:
         report = state["messages"][-1].content
         report_path = Path(context.project_path) / RESEARCHER_REPORT_PATH
+        report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(report, encoding="utf-8")
+        state.replace_messages(state.messages[:-1])
         return state
 
 

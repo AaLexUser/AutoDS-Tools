@@ -7,16 +7,7 @@ import { useSessionStore } from '@/stores/useSessionStore'
 export function useSessions() {
   return useQuery({
     queryKey: ['sessions'],
-    queryFn: async () => {
-      try {
-        const sessions = await apiClient.listSessions()
-        // Ensure we always return an array
-        return Array.isArray(sessions) ? sessions : []
-      } catch (error) {
-        console.error('[useSessions] Failed to fetch sessions:', error)
-        return []
-      }
-    },
+    queryFn: () => apiClient.listSessions(),
     staleTime: 30000,
     retry: 2,
     retryDelay: 1000,

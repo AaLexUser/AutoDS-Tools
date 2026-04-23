@@ -19,10 +19,11 @@ class Toolkit:
             available_tools_str = " ".join([f"<{tool.name}/>" for tool in self.tools])
             return HumanMessage(
                 content=f"Unknown tool(s): {call.name}\n\n"
-                f"Available tools:\n{available_tools_str}"
+                f"Available tools:\n{available_tools_str}",
+                role="tool",
             )
         try:
             result = await tool(**call.params)
             return result
         except Exception as e:
-            return HumanMessage(content=str(e))
+            return HumanMessage(content=str(e), role="tool")

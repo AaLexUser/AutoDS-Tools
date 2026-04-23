@@ -31,7 +31,7 @@ export function FileExplorerDialog() {
   return (
     <Dialog open={fileExplorerOpen} onOpenChange={(open) => !open && closeFileExplorer()}>
       <DialogContent className="max-w-5xl h-[80vh] flex flex-col p-0">
-        <DialogHeader className="px-6 py-4 border-b border-border">
+        <DialogHeader className="border-b border-border px-6 py-4 pr-16">
           <div className="flex items-center justify-between">
             <DialogTitle className="flex items-center gap-3">
               <span>File Explorer</span>
@@ -41,7 +41,7 @@ export function FileExplorerDialog() {
                 </span>
               )}
             </DialogTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-shrink-0 items-center gap-2">
               <Button
                 variant="ghost"
                 size="icon-sm"
