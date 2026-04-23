@@ -76,10 +76,7 @@ class SessionService:
 
     def workspace_path(self, id: str, *, create: bool = True) -> Path:
         self.get_session(id)
-        path = self.storage.workspace_path(self.principal_id, id, create=create)
-        if create:
-            path.mkdir(parents=True, exist_ok=True)
-        return path
+        return self.storage.workspace_path(self.principal_id, id, create=create)
 
     def trace_path(self, id: str) -> Path:
         self.get_session(id)
