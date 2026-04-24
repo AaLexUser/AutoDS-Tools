@@ -20,6 +20,24 @@ When auth is disabled:
 - current local and development behavior continues to work
 - anonymous browser bootstrap and CLI principal token flow remain available
 
+## Research-Validated Direction
+
+Based on external references collected in [workos-auth-research.md](/Users/aleksejlapin/Work/AutoDS-Tools/.agents/references/workos-auth-research.md), the preferred minimal design is:
+
+- Next.js owns the browser-facing WorkOS AuthKit flow
+- FastAPI acts as a protected resource server plus local authorization layer
+- AutoDS keeps a local `users` table for approval and admin state
+- local `user.id` becomes the only downstream `principal_id` in auth mode
+
+This is preferred over a larger custom server-side auth subsystem because it reuses more official WorkOS code paths and minimizes custom auth logic.
+
+## Resolved Product Decisions
+
+- pending users should see only a static approval screen
+- allowlisted bootstrap admin emails should always become admins
+- hosted CLI must share the same hosted session namespace as the browser
+- auth and session persistence should use one sqlite database
+
 ## Current State
 
 The current trust model is lightweight and local-first:
@@ -76,7 +94,6 @@ Reasoning:
 
 - separate deployable auth microservice
 - full RBAC beyond `admin` and `approved user`
-- hosted CLI auth flow
 - SCIM provisioning
 - multi-tenant organization support
 
@@ -100,20 +117,20 @@ Strict hosted mode.
 - browser users must authenticate through WorkOS
 - only approved users can access protected endpoints
 - raw `X-AutoDS-Principal` is not trusted for hosted browser traffic
-- hosted CLI is unsupported until a dedicated auth flow is added
+- hosted CLI must resolve to the same local user identity as the browser
 
 ## High-Level Architecture
 
 ### Components
 
 - `frontend`
+  - WorkOS AuthKit integration
   - login redirect
   - auth state bootstrap
   - pending approval page
-  - admin user approval UI later
+  - admin user approval UI
 - `server auth subsystem`
-  - WorkOS integration
-  - session cookie management
+  - bearer token or server-side identity validation
   - current-user resolution
   - approval enforcement
   - admin-only endpoints
@@ -194,6 +211,18 @@ Add local auth tables separate from the current session storage model.
 
 Keep this table local so requests do not depend on live WorkOS validation after login.
 
+### `cli_tokens`
+
+- `id`
+- `user_id`
+- `token_hash`
+- `label`
+- `last_used_at`
+- `expires_at`
+- `created_at`
+
+These tokens allow hosted CLI access while still resolving to the same local user as the browser.
+
 ### `audit_log`
 
 - `id`
@@ -213,7 +242,7 @@ Keep this table local so requests do not depend on live WorkOS validation after 
 - user cannot upload files
 - user cannot run jobs
 - user cannot connect to session WebSockets
-- user can only view a pending-approval response
+- user can only view a static pending-approval screen
 
 ### `approved`
 
@@ -234,30 +263,27 @@ Use an email allowlist:
 
 On successful login:
 
-- if no admin exists and the email is in the bootstrap allowlist, mark the user as both `approved` and `is_admin=true`
+- if the email is in the bootstrap allowlist, mark the user as both `approved` and `is_admin=true`
 
-This avoids manual database editing during first deployment.
+This avoids manual database editing during first deployment and ensures designated operator accounts always retain admin access.
 
 ## Request Flow
 
 ### Browser Flow In `AUTH_MODE=workos`
 
 1. Frontend requests `GET /api/auth/me`.
-2. If there is no valid app session, backend returns unauthenticated response.
-3. Frontend redirects to `GET /api/auth/login`.
-4. Backend starts WorkOS auth flow.
-5. WorkOS redirects back to callback endpoint.
-6. Backend validates callback, resolves external identity, and upserts local user.
-7. Backend applies bootstrap-admin rule if eligible.
-8. Backend creates local app session and sets secure cookie.
-9. Backend redirects frontend to app.
-10. Frontend calls `GET /api/auth/me` again.
-11. If user status is `pending`, show approval screen.
-12. If user status is `approved`, allow normal app initialization.
+2. If there is no valid auth state, frontend redirects to the WorkOS login route.
+3. WorkOS redirects back to the application callback route.
+4. Next.js completes the AuthKit flow and resolves external identity.
+5. AutoDS upserts the local user record.
+6. AutoDS applies bootstrap-admin rule if eligible.
+7. Frontend calls `GET /api/auth/me` again.
+8. If user status is `pending`, show approval screen.
+9. If user status is `approved`, allow normal app initialization.
 
 ### Protected API Request Flow
 
-1. Resolve local app session from cookie.
+1. Resolve authenticated user from the WorkOS-backed session or validated bearer token.
 2. Load local user.
 3. Require `status=approved`.
 4. Use local `user.id` as `principal_id`.
@@ -283,7 +309,7 @@ The current WebSocket path must not trust raw principal cookies directly in auth
 - `GET /api/auth/callback`
   - completes WorkOS login flow
 - `POST /api/auth/logout`
-  - clears local app session
+  - clears local app session or AuthKit session
 
 ### Admin Endpoints
 
@@ -302,6 +328,19 @@ Current session endpoints remain the same externally, but access depends on auth
 
 - in disabled mode, use current principal behavior
 - in WorkOS mode, derive `principal_id` from approved local user identity
+
+### CLI Auth Endpoints
+
+For hosted CLI support in v1, add app-issued CLI API tokens tied to the same local user record used by the browser.
+
+Recommended endpoints:
+
+- `POST /api/auth/cli/tokens`
+  - create a CLI token for the current approved user
+- `GET /api/auth/cli/tokens`
+  - list active CLI tokens for the current user
+- `DELETE /api/auth/cli/tokens/{id}`
+  - revoke a CLI token
 
 ## Frontend Plan
 
@@ -326,6 +365,20 @@ Replace browser bootstrap behavior in auth mode.
 - approved application
 - unauthorized or disabled account
 
+### Admin UI
+
+Admin UI is a v1 requirement.
+
+Recommended minimal screen:
+
+- route such as `/admin/users`
+- table of users with `pending`, `approved`, and `disabled` status
+- actions:
+  - `Approve`
+  - `Disable`
+
+Pending users should not see any partial product UI. They should only see a static approval-waiting screen.
+
 ## CLI Plan
 
 ### Disabled Mode
@@ -334,23 +387,29 @@ No change.
 
 ### WorkOS Mode
 
-Do not support hosted CLI in v1.
+Hosted CLI is required in v1.
 
-Reason:
+Requirements:
 
-- the current CLI sends a locally generated trusted header
-- that model is incompatible with hosted auth and approval rules
+- CLI and browser must resolve to the same local user identity
+- CLI must see the same hosted sessions as the browser
+- the current self-issued `X-AutoDS-Principal` model cannot be trusted in hosted mode
 
-Future options:
+Recommended minimal design:
 
-- personal access token
-- device authorization flow
-- browser-mediated CLI login
+- browser users authenticate with WorkOS
+- approved users can mint app-issued CLI API tokens from the hosted app
+- CLI sends that token to the backend
+- backend resolves the token to the same local `user.id`
+- backend uses local `user.id` as `principal_id`
+
+This gives browser and CLI a shared session namespace without requiring a full device flow in v1.
 
 ## Security Rules
 
 - fail closed when `AUTH_MODE=workos`
 - never trust browser-provided `X-AutoDS-Principal` in hosted mode
+- never trust CLI self-issued principal headers in hosted mode
 - keep session cookies `HttpOnly`
 - use secure cookies in production
 - normalize and compare email addresses carefully
@@ -364,10 +423,11 @@ The current session storage is file and sqlite based under the AutoDS home direc
 
 Recommended approach:
 
-- add a separate sqlite database for auth state under the server data root
-- keep it isolated from session tables to reduce coupling
+- keep auth and session persistence in one sqlite database
+- add auth-related tables alongside the existing session persistence model
+- keep auth and session modules logically separate even though they share storage
 
-This is enough for v1 and easy to migrate later.
+This is enough for v1, keeps operations simple, and still allows later extraction if needed.
 
 ## Refactoring Plan
 
@@ -393,6 +453,7 @@ Deliverables:
 
 - `users`
 - `auth_sessions`
+- `cli_tokens`
 - `audit_log`
 - storage tests
 
@@ -407,7 +468,7 @@ Deliverables:
 - auth config
 - login endpoint
 - callback endpoint
-- local session cookie issuance
+- Next.js AuthKit integration
 - `GET /api/auth/me`
 
 ### Phase 4: Enforce Approval
@@ -433,7 +494,8 @@ Deliverables:
 
 - admin-only APIs
 - audit log writes
-- simple admin frontend page or temporary backend-only flow
+- simple admin frontend page
+- CLI token management for approved users
 
 ### Phase 6: Cleanup And Hardening
 
@@ -457,6 +519,7 @@ Deliverables:
 - approval state transitions
 - bootstrap admin rule
 - session cookie validation
+- CLI token validation
 - request dependency behavior
 
 ### API Tests
@@ -466,6 +529,7 @@ Deliverables:
 - approved user can create and use sessions
 - disabled user is rejected
 - admin endpoints require admin role
+- hosted CLI token resolves to the same user namespace as the browser
 - WebSocket access uses the same authorization rules
 
 ### Regression Tests
@@ -495,13 +559,6 @@ Add structured logs for:
 - disabled-user denial
 - admin approval actions
 - admin disable actions
-
-## Open Questions
-
-- Should pending users be allowed to see any non-sensitive public metadata, or only a static approval screen?
-- Should the first admin bootstrap happen only once, or should allowlisted emails always become admins?
-- Is browser-only hosted access acceptable for v1, or does hosted CLI support need to be included earlier?
-- Should auth and session persistence share one sqlite database or remain separate files?
 
 ## Recommended Next Step
 

@@ -29,6 +29,9 @@ DEFAULT_SERVER_URL_ENV = "AUTODS_SERVER_URL"
 PRINCIPAL_TOKEN_ENV = "AUTODS_PRINCIPAL_TOKEN"
 PRINCIPAL_TOKEN_PATH = AUTODS_HOME / "cli_principal_token"
 PRINCIPAL_HEADER = "X-AutoDS-Principal"
+API_TOKEN_ENV = "AUTODS_API_TOKEN"
+API_TOKEN_PATH = AUTODS_HOME / "cli_api_token"
+AUTHORIZATION_HEADER = "Authorization"
 
 
 class AgentCLIOptions(BaseModel):
@@ -213,6 +216,16 @@ def load_or_create_principal_token() -> str:
     return token
 
 
+def load_api_token() -> str | None:
+    env_token = os.environ.get(API_TOKEN_ENV)
+    if env_token:
+        return env_token.strip()
+    if API_TOKEN_PATH.exists():
+        token = API_TOKEN_PATH.read_text().strip()
+        return token or None
+    return None
+
+
 def is_server_healthy(server_url: str, principal_token: str) -> bool:
     try:
         response = httpx.get(
@@ -270,14 +283,16 @@ class HostedApiClient:
         self,
         server_url: str,
         principal_token: str,
+        auth_header_name: str = PRINCIPAL_HEADER,
         timeout: float = 30.0,
         client: httpx.Client | None = None,
     ) -> None:
         self.server_url = server_url.rstrip("/")
         self.principal_token = principal_token
+        self.auth_header_name = auth_header_name
         self._client = client or httpx.Client(
             base_url=self.server_url,
-            headers={PRINCIPAL_HEADER: principal_token},
+            headers={auth_header_name: principal_token},
             timeout=timeout,
         )
 
@@ -420,11 +435,26 @@ def build_cli_runtime(
         api_port=api_port,
         agent_options=build_server_options(cli_opts),
     )
+    auth_header_name = PRINCIPAL_HEADER
+    auth_value = principal_token
+    if server_url or os.environ.get(DEFAULT_SERVER_URL_ENV):
+        api_token = load_api_token()
+        if api_token:
+            auth_header_name = AUTHORIZATION_HEADER
+            auth_value = f"Bearer {api_token}"
+        elif os.environ.get("AUTH_MODE", "disabled").strip().lower() == "workos":
+            raise click.ClickException(
+                "Hosted auth requires a CLI API token. Create one in the browser admin page and save it with `autods auth set-token`."
+            )
     return CliRuntime(
         server_url=resolved_url,
-        principal_token=principal_token,
+        principal_token=auth_value,
         started_local=started_local,
-        client=HostedApiClient(resolved_url, principal_token),
+        client=HostedApiClient(
+            resolved_url,
+            auth_value,
+            auth_header_name=auth_header_name,
+        ),
     )
 
 
@@ -435,6 +465,26 @@ def cli(ctx: click.Context) -> None:
     """Autods Agent - hosted client and local server entrypoint."""
     if ctx.invoked_subcommand is None:
         ctx.invoke(chat)
+
+
+@cli.group()
+def auth() -> None:
+    """Manage hosted CLI authentication."""
+
+
+@auth.command("set-token")
+@click.argument("token")
+def auth_set_token(token: str) -> None:
+    API_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    API_TOKEN_PATH.write_text(token.strip())
+    console.print(f"[dim]Saved CLI token to {API_TOKEN_PATH}[/dim]")
+
+
+@auth.command("clear-token")
+def auth_clear_token() -> None:
+    if API_TOKEN_PATH.exists():
+        API_TOKEN_PATH.unlink()
+    console.print(f"[dim]Cleared CLI token from {API_TOKEN_PATH}[/dim]")
 
 
 @AgentCLIOptions.agent_options

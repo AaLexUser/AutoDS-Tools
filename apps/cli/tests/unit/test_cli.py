@@ -199,3 +199,27 @@ def test_stream_session_until_idle_renders_finalized_streaming_message(
         "/api/sessions/session-123/transcript",
         "/api/sessions/session-123/transcript",
     ]
+
+
+def test_hosted_client_can_use_authorization_header() -> None:
+    seen_headers: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_headers.append(request.headers.get("Authorization"))
+        return httpx.Response(200, json=[])
+
+    client = HostedApiClient(
+        "http://example.com",
+        "Bearer test-token",
+        auth_header_name="Authorization",
+        client=httpx.Client(
+            transport=httpx.MockTransport(handler),
+            base_url="http://example.com",
+            headers={"Authorization": "Bearer test-token"},
+        ),
+    )
+
+    sessions = client.list_sessions()
+
+    assert sessions == []
+    assert seen_headers == ["Bearer test-token"]

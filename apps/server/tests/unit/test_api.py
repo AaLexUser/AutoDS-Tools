@@ -3,12 +3,16 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from base64 import urlsafe_b64encode
+from hashlib import sha256
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessageChunk, HumanMessage
 from starlette.websockets import WebSocketDisconnect
+from workos.session import unseal_data
 
 from autods.sessions import SessionService, TranscriptMessage
 from autods_web.api import (
@@ -50,10 +54,107 @@ class FakeRuntime(SessionRuntime):
         return True
 
 
+class FakeWorkOSSession:
+    def __init__(self, identity: dict[str, str] | None) -> None:
+        self.identity = identity
+
+    def authenticate(self):
+        class Result:
+            def __init__(self, identity: dict[str, str] | None) -> None:
+                self.authenticated = identity is not None
+                if identity is None:
+                    self.user = None
+                else:
+                    self.user = type(
+                        "User",
+                        (),
+                        {
+                            "id": identity["workos_user_id"],
+                            "email": identity["email"],
+                            "first_name": identity.get("first_name", ""),
+                            "last_name": identity.get("last_name", ""),
+                        },
+                    )()
+
+        return Result(self.identity)
+
+    def get_logout_url(self) -> str:
+        return "http://localhost:3000/"
+
+
+class FakeUserManagement:
+    def __init__(self) -> None:
+        self.codes: dict[str, tuple[str, dict[str, str]]] = {}
+        self.sessions: dict[str, dict[str, str]] = {}
+
+    def add_identity(
+        self,
+        *,
+        code: str,
+        sealed_session: str,
+        workos_user_id: str,
+        email: str,
+        first_name: str = "Test",
+        last_name: str = "User",
+    ) -> None:
+        identity = {
+            "workos_user_id": workos_user_id,
+            "email": email,
+            "first_name": first_name,
+            "last_name": last_name,
+        }
+        self.codes[code] = (sealed_session, identity)
+        self.sessions[sealed_session] = identity
+
+    def get_authorization_url(self, *, provider: str, redirect_uri: str) -> str:
+        return f"{redirect_uri}?provider={provider}"
+
+    def authenticate_with_code(self, *, code: str, **_: Any):
+        sealed_session, identity = self.codes[code]
+
+        class Response:
+            def __init__(self, sealed_session: str, identity: dict[str, str]) -> None:
+                self.access_token = f"access-token:{sealed_session}"
+                self.refresh_token = f"refresh-token:{sealed_session}"
+                self.impersonator = None
+                self.user = type(
+                    "User",
+                    (),
+                    {
+                        "id": identity["workos_user_id"],
+                        "email": identity["email"],
+                        "first_name": identity.get("first_name", ""),
+                        "last_name": identity.get("last_name", ""),
+                    },
+                )()
+
+        return Response(sealed_session, identity)
+
+    def load_sealed_session(self, *, session_data: str | None, cookie_password: str):
+        identity = self.sessions.get(session_data or "")
+        if identity is None and session_data:
+            session = unseal_data(session_data, cookie_password)
+            user = session.get("user", {})
+            if user:
+                identity = {
+                    "workos_user_id": str(user["id"]),
+                    "email": str(user["email"]),
+                    "first_name": str(user.get("first_name", "")),
+                    "last_name": str(user.get("last_name", "")),
+                }
+        return FakeWorkOSSession(identity)
+
+
+class FakeWorkOSClient:
+    def __init__(self) -> None:
+        self.user_management = FakeUserManagement()
+
+
 @pytest.fixture
 def session_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "sessions"
     monkeypatch.setenv("AUTODS_SESSION_HOME", str(root))
+    monkeypatch.setenv("AUTH_MODE", "disabled")
     return root
 
 
@@ -68,6 +169,10 @@ def _create_client(session_root: Path) -> tuple[TestClient, FakeRuntime]:
     runtime = FakeRuntime(session_root)
     app = create_app(runtime=runtime)
     return TestClient(app), runtime
+
+
+def _valid_cookie_secret(seed: str) -> str:
+    return urlsafe_b64encode(sha256(seed.encode("utf-8")).digest()).decode("utf-8")
 
 
 def _wait_for_transcript_message(
@@ -523,3 +628,96 @@ def test_hosted_runtime_cleans_registry_after_deleted_session_finalizer_error(
     with runtime._lock:
         assert session_id not in runtime._threads
         assert session_id not in runtime._cancel_events
+
+
+def test_workos_pending_user_can_only_see_auth_state(session_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUTH_MODE", "workos")
+    monkeypatch.setenv("AUTH_SECRET", "local-dev-secret")
+    monkeypatch.setenv("WORKOS_COOKIE_PASSWORD", _valid_cookie_secret("workos-cookie"))
+    monkeypatch.setenv("WORKOS_CLIENT_ID", "client_test")
+    monkeypatch.setenv("WORKOS_API_KEY", "sk_test")
+    fake_workos = FakeWorkOSClient()
+    fake_workos.user_management.add_identity(
+        code="pending-code",
+        sealed_session="pending-session",
+        workos_user_id="wos_user_pending",
+        email="pending@example.com",
+    )
+    client = TestClient(
+        create_app(
+            runtime=FakeRuntime(session_root),
+            workos_client_factory=lambda: fake_workos,
+        )
+    )
+
+    callback = client.get("/api/auth/callback?code=pending-code", follow_redirects=False)
+    assert callback.status_code in {302, 307}
+
+    me_response = client.get("/api/auth/me")
+    assert me_response.status_code == 200
+    assert me_response.json()["authenticated"] is True
+    assert me_response.json()["user"]["status"] == "pending"
+
+    create_response = client.post("/api/sessions")
+    assert create_response.status_code == 403
+    assert create_response.json()["detail"] == "Approval required"
+
+
+def test_workos_allowlisted_admin_can_approve_user_and_use_shared_cli_namespace(
+    session_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTH_MODE", "workos")
+    monkeypatch.setenv("AUTH_SECRET", "local-dev-secret")
+    monkeypatch.setenv("WORKOS_COOKIE_PASSWORD", _valid_cookie_secret("workos-cookie"))
+    monkeypatch.setenv("WORKOS_CLIENT_ID", "client_test")
+    monkeypatch.setenv("WORKOS_API_KEY", "sk_test")
+    monkeypatch.setenv("AUTH_BOOTSTRAP_ADMIN_EMAILS", "admin@example.com")
+    fake_workos = FakeWorkOSClient()
+    fake_workos.user_management.add_identity(
+        code="admin-code",
+        sealed_session="admin-session",
+        workos_user_id="wos_user_admin",
+        email="admin@example.com",
+    )
+    fake_workos.user_management.add_identity(
+        code="member-code",
+        sealed_session="member-session",
+        workos_user_id="wos_user_member",
+        email="member@example.com",
+    )
+
+    runtime = FakeRuntime(session_root)
+    app = create_app(runtime=runtime, workos_client_factory=lambda: fake_workos)
+    admin_client = TestClient(app)
+    member_client = TestClient(app)
+
+    admin_callback = admin_client.get("/api/auth/callback?code=admin-code", follow_redirects=False)
+    member_callback = member_client.get("/api/auth/callback?code=member-code", follow_redirects=False)
+    assert admin_callback.status_code in {302, 307}
+    assert member_callback.status_code in {302, 307}
+
+    users_response = admin_client.get("/api/admin/users")
+    assert users_response.status_code == 200
+    member_user = next(item for item in users_response.json() if item["email"] == "member@example.com")
+
+    approve_response = admin_client.post(f"/api/admin/users/{member_user['id']}/approve")
+    assert approve_response.status_code == 200
+
+    create_response = member_client.post("/api/sessions")
+    assert create_response.status_code == 200
+    session_id = create_response.json()["id"]
+
+    token_response = member_client.post(
+        "/api/auth/cli/tokens",
+        json={"label": "local-cli"},
+    )
+    assert token_response.status_code == 200
+    token_value = token_response.json()["token"]
+
+    cli_list = member_client.get(
+        "/api/sessions",
+        headers={"Authorization": f"Bearer {token_value}"},
+    )
+    assert cli_list.status_code == 200
+    assert [item["id"] for item in cli_list.json()] == [session_id]

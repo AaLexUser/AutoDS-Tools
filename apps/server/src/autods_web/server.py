@@ -4,6 +4,7 @@ import multiprocessing
 from typing import Any, Optional
 
 import uvicorn
+from dotenv import load_dotenv
 
 from autods.logging import get_logger, setup_logging
 
@@ -17,6 +18,7 @@ def run_api_server(
     port: int = 8000,
     agent_options: Optional[dict[str, Any]] = None,
 ):
+    load_dotenv()
     setup_logging(console=False)
     logger.info("Starting API server on {}:{}", host, port)
     app = create_app(agent_options=agent_options or {})

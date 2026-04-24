@@ -4,10 +4,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api/client'
 import { useSessionStore } from '@/stores/useSessionStore'
 
-export function useSessions() {
+export function useSessions(enabled: boolean = true) {
   return useQuery({
     queryKey: ['sessions'],
     queryFn: () => apiClient.listSessions(),
+    enabled,
     staleTime: 30000,
     retry: 2,
     retryDelay: 1000,

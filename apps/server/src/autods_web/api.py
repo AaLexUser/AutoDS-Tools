@@ -29,7 +29,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from langchain_core.messages import (
     AIMessageChunk,
     BaseMessage,
@@ -40,6 +40,7 @@ from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
 from autods.agents.autods import AutoDSAgent
+from autods.auth import AuthUser, UserStatus
 from autods.runtime.runner import AgentRunner
 from autods.sessions import (
     SessionMetadata,
@@ -54,6 +55,14 @@ from autods.sessions import (
 )
 from autods.utils.config import load_config
 
+from .auth import (
+    WORKOS_SESSION_COOKIE_NAME,
+    AuthSettings,
+    WorkOSAuthManager,
+    require_admin_user,
+    require_approved_user,
+    resolve_bearer_token,
+)
 from .loggers import Tracer
 
 logger = logging.getLogger(__name__)
@@ -81,6 +90,37 @@ ALLOWED_UPLOAD_EXTENSIONS = {
 
 class BootstrapResponse(BaseModel):
     principal_id: str
+
+
+class AuthUserResponse(BaseModel):
+    id: str
+    email: str
+    display_name: str | None = None
+    status: str
+    is_admin: bool
+
+
+class AuthStateResponse(BaseModel):
+    mode: str
+    authenticated: bool
+    user: AuthUserResponse | None = None
+
+
+class CliTokenCreateRequest(BaseModel):
+    label: str | None = None
+
+
+class CliTokenCreateResponse(BaseModel):
+    id: str
+    token: str
+    label: str | None = None
+
+
+class CliTokenResponse(BaseModel):
+    id: str
+    label: str | None = None
+    created_at: datetime
+    last_used_at: datetime | None = None
 
 
 class SessionResponse(BaseModel):
@@ -598,8 +638,15 @@ def _build_transcript_response(
 def create_app(
     agent_options: Optional[dict[str, Any]] = None,
     runtime: SessionRuntime | None = None,
+    workos_client_factory: Callable[[], Any] | None = None,
 ) -> FastAPI:
     storage = SessionStorage()
+    auth_settings = AuthSettings.from_env()
+    auth_manager = WorkOSAuthManager(
+        storage=storage,
+        settings=auth_settings,
+        workos_client_factory=workos_client_factory,
+    )
     manager = WebSocketManager()
     default_agent_options = agent_options or {}
     runtime = runtime or HostedAgentRuntime(
@@ -636,6 +683,10 @@ def create_app(
         )
 
     def _require_principal(request: Request) -> str:
+        if auth_settings.enabled:
+            cli_user = auth_manager.resolve_cli_user(resolve_bearer_token(request))
+            browser_user = cli_user or auth_manager.resolve_browser_user(request)
+            return require_approved_user(browser_user).id
         principal_id = _principal_from_request(request)
         if principal_id:
             try:
@@ -649,6 +700,15 @@ def create_app(
 
     def _session_service(principal_id: str) -> SessionService:
         return SessionService(principal_id=principal_id, storage=storage)
+
+    def _auth_user_response(user: AuthUser) -> AuthUserResponse:
+        return AuthUserResponse(
+            id=user.id,
+            email=user.email,
+            display_name=user.display_name,
+            status=user.status,
+            is_admin=user.is_admin,
+        )
 
     def _get_owned_session(principal_id: str, session_id: str) -> SessionMetadata:
         service = _session_service(principal_id)
@@ -674,6 +734,8 @@ def create_app(
 
     @app.post("/api/bootstrap", response_model=BootstrapResponse)
     async def bootstrap(request: Request, response: Response):
+        if auth_settings.enabled:
+            raise HTTPException(status_code=404, detail="Bootstrap disabled")
         principal_id = _principal_from_request(request)
         if principal_id is not None:
             try:
@@ -690,6 +752,122 @@ def create_app(
             max_age=60 * 60 * 24 * 365,
         )
         return BootstrapResponse(principal_id=principal_id)
+
+    @app.get("/api/auth/me", response_model=AuthStateResponse)
+    async def auth_me(request: Request):
+        if not auth_settings.enabled:
+            return AuthStateResponse(mode=auth_settings.mode, authenticated=False)
+        cli_user = auth_manager.resolve_cli_user(resolve_bearer_token(request))
+        browser_user = cli_user or auth_manager.resolve_browser_user(request)
+        if browser_user is None:
+            return AuthStateResponse(mode=auth_settings.mode, authenticated=False)
+        return AuthStateResponse(
+            mode=auth_settings.mode,
+            authenticated=True,
+            user=_auth_user_response(browser_user),
+        )
+
+    @app.get("/api/auth/login")
+    async def auth_login():
+        return RedirectResponse(auth_manager.build_login_url(), status_code=307)
+
+    @app.get("/api/auth/callback")
+    async def auth_callback(code: str | None = None):
+        user, sealed_session = auth_manager.exchange_code(code)
+        redirect_response = RedirectResponse(auth_settings.frontend_root_url, status_code=307)
+        redirect_response.set_cookie(
+            key=WORKOS_SESSION_COOKIE_NAME,
+            value=sealed_session,
+            httponly=True,
+            samesite="lax",
+            secure=auth_settings.auth_cookie_secure,
+            max_age=60 * 60 * 24 * 30,
+        )
+        return redirect_response
+
+    @app.post("/api/auth/logout")
+    async def auth_logout(request: Request):
+        if not auth_settings.enabled:
+            return {"status": "logged_out"}
+        logout_url = auth_manager.logout_url(request.cookies.get(WORKOS_SESSION_COOKIE_NAME))
+        response = RedirectResponse(logout_url, status_code=307)
+        response.delete_cookie(WORKOS_SESSION_COOKIE_NAME)
+        return response
+
+    @app.get("/api/admin/users", response_model=list[AuthUserResponse])
+    async def list_auth_users(request: Request):
+        if not auth_settings.enabled:
+            raise HTTPException(status_code=404, detail="Auth mode disabled")
+        user = auth_manager.resolve_cli_user(resolve_bearer_token(request)) or auth_manager.resolve_browser_user(request)
+        require_admin_user(user)
+        return [_auth_user_response(item) for item in storage.list_auth_users()]
+
+    @app.post("/api/admin/users/{user_id}/approve", response_model=AuthUserResponse)
+    async def approve_auth_user(request: Request, user_id: str):
+        if not auth_settings.enabled:
+            raise HTTPException(status_code=404, detail="Auth mode disabled")
+        admin = require_admin_user(
+            auth_manager.resolve_cli_user(resolve_bearer_token(request))
+            or auth_manager.resolve_browser_user(request)
+        )
+        user = storage.set_auth_user_status(
+            user_id,
+            status=UserStatus.APPROVED,
+            approved_by=admin.id,
+        )
+        storage.append_audit_log(
+            action="user.approved",
+            actor_user_id=admin.id,
+            target_user_id=user.id,
+        )
+        return _auth_user_response(user)
+
+    @app.post("/api/admin/users/{user_id}/disable", response_model=AuthUserResponse)
+    async def disable_auth_user(request: Request, user_id: str):
+        if not auth_settings.enabled:
+            raise HTTPException(status_code=404, detail="Auth mode disabled")
+        admin = require_admin_user(
+            auth_manager.resolve_cli_user(resolve_bearer_token(request))
+            or auth_manager.resolve_browser_user(request)
+        )
+        user = storage.set_auth_user_status(user_id, status=UserStatus.DISABLED)
+        storage.append_audit_log(
+            action="user.disabled",
+            actor_user_id=admin.id,
+            target_user_id=user.id,
+        )
+        return _auth_user_response(user)
+
+    @app.get("/api/auth/cli/tokens", response_model=list[CliTokenResponse])
+    async def list_cli_tokens(request: Request):
+        if not auth_settings.enabled:
+            raise HTTPException(status_code=404, detail="Auth mode disabled")
+        user = require_approved_user(auth_manager.resolve_browser_user(request))
+        return [
+            CliTokenResponse(
+                id=item.id,
+                label=item.label,
+                created_at=item.created_at,
+                last_used_at=item.last_used_at,
+            )
+            for item in storage.list_cli_tokens(user.id)
+        ]
+
+    @app.post("/api/auth/cli/tokens", response_model=CliTokenCreateResponse)
+    async def create_cli_token(request: Request, body: CliTokenCreateRequest):
+        if not auth_settings.enabled:
+            raise HTTPException(status_code=404, detail="Auth mode disabled")
+        user = require_approved_user(auth_manager.resolve_browser_user(request))
+        raw_token, token_id = auth_manager.create_cli_token(user.id, label=body.label)
+        return CliTokenCreateResponse(id=token_id, token=raw_token, label=body.label)
+
+    @app.delete("/api/auth/cli/tokens/{token_id}")
+    async def revoke_cli_token(request: Request, token_id: str):
+        if not auth_settings.enabled:
+            raise HTTPException(status_code=404, detail="Auth mode disabled")
+        user = require_approved_user(auth_manager.resolve_browser_user(request))
+        storage.revoke_cli_token(user.id, token_id)
+        return {"status": "revoked", "id": token_id}
 
     @app.post("/api/sessions", response_model=SessionResponse)
     async def create_session(request: Request):
@@ -956,12 +1134,14 @@ def create_app(
         )
 
     @app.get("/api/datasets")
-    async def list_datasets():
+    async def list_datasets(request: Request):
+        _require_principal(request)
         datasets = await pg.list()
         return [{"id": ds.name, "name": ds.name} for ds in (datasets or [])]
 
     @app.post("/api/datasets", status_code=201)
-    async def add_dataset(body: AddDatasetRequest):
+    async def add_dataset(request: Request, body: AddDatasetRequest):
+        _require_principal(request)
         try:
             await pg.add(body.url)
             dataset = await pg.get_dataset(body.url)
@@ -971,7 +1151,8 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.delete("/api/datasets/{name}", status_code=204)
-    async def delete_dataset(name: str):
+    async def delete_dataset(request: Request, name: str):
+        _require_principal(request)
         try:
             await pg.delete(name)
         except Exception as exc:
@@ -979,7 +1160,8 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.get("/api/config")
-    async def get_config():
+    async def get_config(request: Request):
+        _require_principal(request)
         from autods.constants import DEFAULT_CONFIG_PATH
 
         return {
@@ -989,7 +1171,8 @@ def create_app(
         }
 
     @app.post("/api/config")
-    async def update_config(body: dict[str, str]):
+    async def update_config(request: Request, body: dict[str, str]):
+        _require_principal(request)
         from autods.constants import DEFAULT_CONFIG_PATH
 
         try:
@@ -1002,17 +1185,28 @@ def create_app(
 
     @app.websocket("/api/ws/{session_id}")
     async def websocket_endpoint(websocket: WebSocket, session_id: str):
-        principal_id = _principal_from_websocket(websocket)
-        if principal_id is None:
-            await websocket.accept()
-            await websocket.close(code=4401, reason="Missing principal identity")
-            return
-        try:
-            principal_id = validate_principal_id(principal_id)
-        except SessionStorageError:
-            await websocket.accept()
-            await websocket.close(code=4400, reason="Invalid principal identity")
-            return
+        if auth_settings.enabled:
+            browser_user = auth_manager.authenticate_browser_user(
+                websocket.cookies.get(WORKOS_SESSION_COOKIE_NAME)
+            )
+            try:
+                principal_id = require_approved_user(browser_user).id
+            except HTTPException as exc:
+                await websocket.accept()
+                await websocket.close(code=4401, reason=exc.detail)
+                return
+        else:
+            raw_principal_id = _principal_from_websocket(websocket)
+            if raw_principal_id is None:
+                await websocket.accept()
+                await websocket.close(code=4401, reason="Missing principal identity")
+                return
+            try:
+                principal_id = validate_principal_id(raw_principal_id)
+            except SessionStorageError:
+                await websocket.accept()
+                await websocket.close(code=4400, reason="Invalid principal identity")
+                return
         try:
             _get_owned_session(principal_id, session_id)
         except HTTPException as exc:
