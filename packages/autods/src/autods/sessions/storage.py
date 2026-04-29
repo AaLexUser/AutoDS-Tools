@@ -162,6 +162,38 @@ class SessionStorage:
     def _row_to_cli_token(self, row: sqlite3.Row) -> CliTokenRecord:
         return CliTokenRecord.model_validate(dict(row))
 
+    def _get_auth_user_row_by_workos_id(
+        self,
+        connection: sqlite3.Connection,
+        workos_user_id: str,
+    ) -> sqlite3.Row | None:
+        return connection.execute(
+            """
+            SELECT id, workos_user_id, email, display_name, status, is_admin,
+                   created_at, updated_at, approved_at, approved_by
+            FROM auth_users
+            WHERE workos_user_id = ?
+            LIMIT 1
+            """,
+            (workos_user_id,),
+        ).fetchone()
+
+    def _get_auth_user_row_by_email(
+        self,
+        connection: sqlite3.Connection,
+        email: str,
+    ) -> sqlite3.Row | None:
+        return connection.execute(
+            """
+            SELECT id, workos_user_id, email, display_name, status, is_admin,
+                   created_at, updated_at, approved_at, approved_by
+            FROM auth_users
+            WHERE email = ?
+            LIMIT 1
+            """,
+            (email,),
+        ).fetchone()
+
     def principal_path(self, principal_id: str, *, create: bool = True) -> Path:
         path = self.principals_root / validate_principal_id(principal_id)
         return self._ensure_dir(path) if create else path
@@ -409,18 +441,13 @@ class SessionStorage:
         now = datetime.now(UTC)
 
         with self._lock, self._connect() as connection:
-            row = connection.execute(
-                """
-                SELECT id, workos_user_id, email, display_name, status, is_admin,
-                       created_at, updated_at, approved_at, approved_by
-                FROM auth_users
-                WHERE workos_user_id = ? OR email = ?
-                LIMIT 1
-                """,
-                (workos_user_id, normalized_email),
-            ).fetchone()
+            workos_row = self._get_auth_user_row_by_workos_id(
+                connection,
+                workos_user_id,
+            )
+            email_row = self._get_auth_user_row_by_email(connection, normalized_email)
 
-            if row is None:
+            if workos_row is None and email_row is None:
                 user = AuthUser(
                     id=uuid.uuid4().hex,
                     workos_user_id=workos_user_id,
@@ -452,11 +479,16 @@ class SessionStorage:
                 )
                 return user
 
+            row = workos_row or email_row
+            assert row is not None
             user = self._row_to_auth_user(row)
-            if user.email != normalized_email:
-                user.email = normalized_email
-            if workos_user_id and user.workos_user_id != workos_user_id:
+
+            if workos_row is None and workos_user_id and user.workos_user_id != workos_user_id:
                 user.workos_user_id = workos_user_id
+
+            if email_row is None or email_row["id"] == user.id:
+                user.email = normalized_email
+
             user.display_name = display_name
             user.updated_at = now
             if bootstrap_admin:

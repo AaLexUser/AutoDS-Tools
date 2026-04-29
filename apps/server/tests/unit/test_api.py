@@ -547,7 +547,7 @@ def test_transcript_keeps_inflight_assistant_draft_across_session_switches(
     assert completed.json()["messages"][-1]["isStreaming"] is False
 
 
-def test_run_conflict_keeps_session_status_running(session_root: Path) -> None:
+def test_run_conflict_marks_session_error(session_root: Path) -> None:
     client = TestClient(create_app(runtime=ConcurrentStartRuntime()))
 
     _bootstrap(client)
@@ -562,7 +562,7 @@ def test_run_conflict_keeps_session_status_running(session_root: Path) -> None:
     assert run_response.json()["detail"] == "Session already has a running task"
     session_response = client.get(f"/api/sessions/{session_id}")
     assert session_response.status_code == 200
-    assert session_response.json()["status"] == "running"
+    assert session_response.json()["status"] == "error"
 
 
 def test_hosted_runtime_init_failure_marks_session_error_and_cleans_registry(
@@ -721,3 +721,37 @@ def test_workos_allowlisted_admin_can_approve_user_and_use_shared_cli_namespace(
     )
     assert cli_list.status_code == 200
     assert [item["id"] for item in cli_list.json()] == [session_id]
+
+
+def test_admin_actions_return_404_for_missing_user(
+    session_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTH_MODE", "workos")
+    monkeypatch.setenv("AUTH_SECRET", "local-dev-secret")
+    monkeypatch.setenv("WORKOS_COOKIE_PASSWORD", _valid_cookie_secret("workos-cookie"))
+    monkeypatch.setenv("WORKOS_CLIENT_ID", "client_test")
+    monkeypatch.setenv("WORKOS_API_KEY", "sk_test")
+    monkeypatch.setenv("AUTH_BOOTSTRAP_ADMIN_EMAILS", "admin@example.com")
+    fake_workos = FakeWorkOSClient()
+    fake_workos.user_management.add_identity(
+        code="admin-code",
+        sealed_session="admin-session",
+        workos_user_id="wos_user_admin",
+        email="admin@example.com",
+    )
+
+    client = TestClient(
+        create_app(
+            runtime=FakeRuntime(session_root),
+            workos_client_factory=lambda: fake_workos,
+        )
+    )
+
+    callback = client.get("/api/auth/callback?code=admin-code", follow_redirects=False)
+    assert callback.status_code in {302, 307}
+
+    for action in ("approve", "disable"):
+        response = client.post(f"/api/admin/users/missing-user/{action}")
+        assert response.status_code == 404
+        assert response.json()["detail"] == "User not found"

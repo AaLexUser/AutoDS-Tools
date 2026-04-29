@@ -719,6 +719,21 @@ def create_app(
         except SessionNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Session not found") from exc
 
+    def _set_auth_user_status(
+        user_id: str,
+        *,
+        status: UserStatus,
+        approved_by: str | None = None,
+    ) -> AuthUser:
+        try:
+            return storage.set_auth_user_status(
+                user_id,
+                status=status,
+                approved_by=approved_by,
+            )
+        except SessionNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="User not found") from exc
+
     def _workspace_for(session: SessionMetadata, *, create: bool = True) -> Path:
         service = _session_service(session.principal_id)
         return service.workspace_path(session.id, create=create)
@@ -810,7 +825,7 @@ def create_app(
             auth_manager.resolve_cli_user(resolve_bearer_token(request))
             or auth_manager.resolve_browser_user(request)
         )
-        user = storage.set_auth_user_status(
+        user = _set_auth_user_status(
             user_id,
             status=UserStatus.APPROVED,
             approved_by=admin.id,
@@ -830,7 +845,7 @@ def create_app(
             auth_manager.resolve_cli_user(resolve_bearer_token(request))
             or auth_manager.resolve_browser_user(request)
         )
-        user = storage.set_auth_user_status(user_id, status=UserStatus.DISABLED)
+        user = _set_auth_user_status(user_id, status=UserStatus.DISABLED)
         storage.append_audit_log(
             action="user.disabled",
             actor_user_id=admin.id,
@@ -912,10 +927,7 @@ def create_app(
             runtime.start_run(session, body.message, run_options=body.options)
         except RuntimeError as exc:
             refreshed = service.get_session(session.id)
-            if refreshed.status not in {
-                SessionStatus.RUNNING,
-                SessionStatus.CANCELLING,
-            }:
+            if refreshed.status == SessionStatus.RUNNING:
                 service.set_status(session.id, SessionStatus.ERROR)
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return RunResponse(session_id=session.id, status="started")
