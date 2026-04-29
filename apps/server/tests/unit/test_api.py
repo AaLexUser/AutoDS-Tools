@@ -340,6 +340,31 @@ def test_add_dataset_looks_up_created_dataset_by_repository_id(
     assert response.json() == {"id": "owner-repo", "name": "owner-repo"}
 
 
+def test_add_dataset_returns_meaningful_error_when_indexed_dataset_is_missing(
+    session_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _ = _create_client(session_root)
+    _bootstrap(client)
+
+    async def fake_add(url: str) -> None:
+        assert url == "https://github.com/owner/repo"
+
+    async def fake_get_dataset(dataset_name: str):
+        assert dataset_name == "owner-repo"
+        return None
+
+    monkeypatch.setattr("autods_web.api.pg.add", fake_add)
+    monkeypatch.setattr("autods_web.api.pg.get_dataset", fake_get_dataset)
+
+    response = client.post(
+        "/api/datasets",
+        json={"url": "https://github.com/owner/repo"},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Dataset was not found after indexing"}
+
+
 def test_delete_dataset_passes_repository_id_to_pygrad(session_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client, _ = _create_client(session_root)
     _bootstrap(client)

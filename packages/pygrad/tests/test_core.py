@@ -276,6 +276,7 @@ class TestCogneeBackend:
         """Visualization returns the same destination path after export."""
         output_path = temp_dir / "graph.html"
         records = install_fake_cognee_runtime(monkeypatch)
+        monkeypatch.setenv("SEARCH_BACKEND", SearchBackend.COGNEE.value)
 
         result = await core.visualize(str(output_path))
 
@@ -314,6 +315,47 @@ class TestNeo4jBackend:
         ]
         assert driver.session_databases == ["pygrad"]
         assert driver.closed is True
+
+    @pytest.mark.asyncio
+    async def test_visualize_rejects_neo4j_backend(self) -> None:
+        """Neo4j GraphRAG does not support the Cognee-only HTML export."""
+        with pytest.raises(RuntimeError, match="Visualization is only supported for the cognee backend"):
+            await core.visualize("./graph.html")
+
+    @pytest.mark.asyncio
+    async def test_add_clears_existing_neo4j_repository_state(self, monkeypatch, temp_dir, sample_repo):
+        """Re-indexing a repo should replace stale Neo4j graph state."""
+        repo_id = get_repository_id(SAMPLE_URL)
+        storage_dir = temp_dir / "storage"
+        monkeypatch.setattr(core, "REPO_STORAGE", str(storage_dir))
+
+        def fake_clone_repository(url: str, target: Path) -> None:
+            assert url == SAMPLE_URL
+            shutil.copytree(sample_repo, target)
+
+        captured: dict[str, Any] = {}
+
+        async def fake_process_repository_to_neo4j(**kwargs: Any) -> dict[str, int]:
+            captured.update(kwargs)
+            return {"classes": 0, "functions": 0, "methods": 0, "examples": 0}
+
+        monkeypatch.setattr(core, "clone_repository", fake_clone_repository)
+        monkeypatch.setattr(core, "process_repository_to_neo4j", fake_process_repository_to_neo4j)
+
+        async def fake_generate_and_store_embeddings(**kwargs: Any) -> dict[str, int]:
+            return {}
+
+        monkeypatch.setattr(core.GraphDatabase, "driver", lambda uri, auth: FakeDriver([FakeSession([])]))
+        monkeypatch.setattr(core, "create_embedder_from_env", lambda: object())
+        monkeypatch.setattr(core, "generate_and_store_embeddings", fake_generate_and_store_embeddings)
+        monkeypatch.setattr(core, "setup_vector_indexes", lambda **kwargs: None)
+        monkeypatch.setattr(core, "validate_embedding_dimensions_for_index", lambda dimensions, embedder: None)
+        monkeypatch.setattr(core, "get_embedding_dimensions_from_env", lambda: 768)
+
+        await core.add(SAMPLE_URL)
+
+        assert captured["repository_id"] == repo_id
+        assert captured["clear_existing"] is True
 
     @pytest.mark.asyncio
     async def test_search_returns_not_indexed_when_repository_has_no_nodes(self, monkeypatch):

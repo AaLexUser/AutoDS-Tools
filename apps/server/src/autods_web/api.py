@@ -1137,7 +1137,11 @@ def create_app(
             await pg.add(body.url)
             repo_id = pg.get_repository_id(body.url)
             dataset = await pg.get_dataset(repo_id)
+            if dataset is None:
+                raise HTTPException(status_code=500, detail="Dataset was not found after indexing")
             return {"id": dataset.name, "name": dataset.name}
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.exception("Failed to add dataset")
             raise HTTPException(status_code=500, detail=str(exc)) from exc

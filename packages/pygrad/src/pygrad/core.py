@@ -90,7 +90,7 @@ async def add(url: str) -> None:
             neo4j_password=neo4j_config.password,
             repository_id=repo_id,
             database=neo4j_config.database,
-            clear_existing=False,
+            clear_existing=True,
         )
 
         print(
@@ -228,6 +228,10 @@ async def visualize(path: str = "./pygrad.html") -> str:
         >>> import pygrad as pg
         >>> await pg.visualize("./knowledge-graph.html")
     """
+    backend = get_search_backend()
+    if backend != SearchBackend.COGNEE:
+        raise RuntimeError("Visualization is only supported for the cognee backend")
+
     _, setup = _get_cognee_runtime()
     visualize_graph = _get_visualize_graph()
     await setup()
