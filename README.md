@@ -113,7 +113,17 @@ just frontend-dev
 
 The UI runs on `http://localhost:3000`.
 
-The frontend uses `NEXT_PUBLIC_API_URL` and defaults to `http://localhost:8000`. Override it in `apps/frontend/.env.local` if needed.
+The frontend uses `NEXT_PUBLIC_API_URL` when it is set.
+
+Without that variable:
+- local browser development on `localhost` / `127.0.0.1` falls back to `http://<host>:8000`
+- non-local browser hosts fall back to the current origin for same-origin proxy deployments
+
+Set `apps/frontend/.env.local` if you want an explicit local override, for example:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
 
 ### CLI
 

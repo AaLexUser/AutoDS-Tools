@@ -23,6 +23,10 @@ npm run dev
 
 ## Environment
 
-The frontend reads `NEXT_PUBLIC_API_URL` and defaults to `http://localhost:8000`.
+The frontend reads `NEXT_PUBLIC_API_URL` when it is set.
+
+Without that variable:
+- local browser development on `localhost` / `127.0.0.1` falls back to `http://<host>:8000`
+- non-local browser hosts fall back to the current origin for same-origin proxy deployments
 
 Create `apps/frontend/.env.local` if you need to point the UI at a different backend.
