@@ -7,9 +7,7 @@ from autods.tools.toolkit import Toolkit
 from autods.utils.llm_client import LLMClient
 
 
-def _merge_messages(
-    existing: list[BaseMessage], new: list[BaseMessage]
-) -> list[BaseMessage]:
+def _merge_messages(existing: list[BaseMessage], new: list[BaseMessage]) -> list[BaseMessage]:
     existing_by_id = {msg.id: idx for idx, msg in enumerate(existing) if msg.id}
     result = list(existing)
     for msg in new:

@@ -50,9 +50,7 @@ def _truncate(content: str) -> str:
     head = "".join(segments[:head_take])[:MODEL_FORMAT_HEAD_BYTES]
     marker = f"\n[... omitted {omitted} of {total_lines} lines ...]\n\n"
     remaining = max(MODEL_FORMAT_MAX_BYTES - len(head) - len(marker), 0)
-    tail = (
-        "".join(segments[total_lines - tail_take :])[-remaining:] if remaining else ""
-    )
+    tail = "".join(segments[total_lines - tail_take :])[-remaining:] if remaining else ""
 
     formatted = f"Total output lines: {total_lines}\n\n{head}{marker}{tail}".rstrip()
     return formatted

@@ -90,9 +90,7 @@ _async_retryable_exceptions.extend(HTTPX_RETRYABLE_EXCEPTIONS)
 _async_retryable_exceptions.extend(OPENAI_RETRYABLE_EXCEPTIONS)
 _async_retryable_exceptions.append(asyncio.TimeoutError)
 
-ASYNC_RETRYABLE_EXCEPTIONS: tuple[type[Exception], ...] = tuple(
-    dict.fromkeys(_async_retryable_exceptions)
-)
+ASYNC_RETRYABLE_EXCEPTIONS: tuple[type[Exception], ...] = tuple(dict.fromkeys(_async_retryable_exceptions))
 
 ASYNC_BASE_DELAY_SECONDS = 1.0
 ASYNC_MAX_BACKOFF_SECONDS = 60.0
@@ -100,9 +98,7 @@ ASYNC_BACKOFF_FACTOR = 2.0
 
 
 IMAGE_PLACEHOLDER_TEXT = "[image omitted due to model limitations]"
-IMAGE_REMOVAL_NOTICE = (
-    "Image output omitted because the current endpoint does not support image inputs."
-)
+IMAGE_REMOVAL_NOTICE = "Image output omitted because the current endpoint does not support image inputs."
 
 
 class LLMProvider(Enum):
@@ -145,9 +141,7 @@ class LLMClient(BaseChatModel):
 
                 client: BaseChatModel = ChatOpenAI(
                     model=llm_config.model,
-                    api_key=SecretStr(llm_config.model_provider.api_key)
-                    if llm_config.model_provider.api_key
-                    else None,
+                    api_key=SecretStr(llm_config.model_provider.api_key) if llm_config.model_provider.api_key else None,
                     base_url=llm_config.model_provider.base_url,
                     max_retries=llm_config.max_retries,
                     model_kwargs=llm_config.model_kwargs or {},
@@ -224,9 +218,7 @@ class LLMClient(BaseChatModel):
             max_retries=max_retries,
         )
 
-    def _async_stream_with_retry(
-        self, generator_factory: Callable[[], AsyncIterator[Any]]
-    ) -> AsyncIterator[Any]:
+    def _async_stream_with_retry(self, generator_factory: Callable[[], AsyncIterator[Any]]) -> AsyncIterator[Any]:
         max_retries = max(self._llm_config.max_retries, 0)
         return _stream_async_with_retry(
             generator_factory,
@@ -314,9 +306,7 @@ class LLMClient(BaseChatModel):
                                         None,
                                         None,
                                     )
-                                    if hasattr(result, "generations") and getattr(
-                                        result, "generations"
-                                    ):
+                                    if hasattr(result, "generations") and getattr(result, "generations"):
                                         return result
                                 except Exception as e:  # keep it tight and quick
                                     last_err = e
@@ -694,9 +684,7 @@ def _stream_async_with_retry(
             except Exception as exc:
                 if isinstance(exc, asyncio.CancelledError):
                     raise
-                if not _matches_retryable_exception(exc) or not _is_retryable_error(
-                    exc
-                ):
+                if not _matches_retryable_exception(exc) or not _is_retryable_error(exc):
                     raise
                 if attempt >= max_retries:
                     raise
@@ -805,9 +793,7 @@ def _prepare_fallback_input(error: Exception, original_input: Any) -> Any | None
     return sanitized
 
 
-def _prepare_fallback_batch_input(
-    error: Exception, inputs: list[Any]
-) -> list[Any] | None:
+def _prepare_fallback_batch_input(error: Exception, inputs: list[Any]) -> list[Any] | None:
     if not _should_retry_image_error(error):
         return None
     sanitized_inputs: list[Any] = []

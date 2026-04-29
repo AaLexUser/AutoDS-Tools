@@ -38,9 +38,7 @@ def _is_python_error(response_content: str) -> bool:
         "Exception:",
         "Error:",
     ]
-    has_traceback = any(
-        pattern in response_content for pattern in python_error_patterns
-    )
+    has_traceback = any(pattern in response_content for pattern in python_error_patterns)
 
     return has_traceback
 
@@ -85,14 +83,10 @@ class Think(AutoDSTaskInference):
             f"--- cpu_limit=os.cpu_count(), memory_limit=psutil.virtual_memory().available ---\n"
         )
         if isinstance(last_message, HumanMessage):
-            new_histoty[-1] = HumanMessage(
-                content=str(last_message.content) + f"\n\n{avaliable_resurces_message}"
-            )
+            new_histoty[-1] = HumanMessage(content=str(last_message.content) + f"\n\n{avaliable_resurces_message}")
         return new_histoty
 
-    async def _runnable(
-        self, state: AutoDSState, context: AutoDSContext
-    ) -> AutoDSState | Command[Any]:
+    async def _runnable(self, state: AutoDSState, context: AutoDSContext) -> AutoDSState | Command[Any]:
         # Run initial messages prompt
         response = self.prompt_generator.get_next_initial_message_prompt()
         if response is not None:
@@ -120,17 +114,13 @@ class Think(AutoDSTaskInference):
 
 
 class Act(AutoDSTaskInference):
-    async def _runnable(
-        self, state: AutoDSState, context: AutoDSContext
-    ) -> AutoDSState | Command[Any]:
+    async def _runnable(self, state: AutoDSState, context: AutoDSContext) -> AutoDSState | Command[Any]:
         last_message = state["messages"][-1]
         if not isinstance(last_message, AIMessage):
             raise TypeError("Act expects the last message to be an AIMessage.")
 
         if not isinstance(last_message.content, str):
-            raise ValueError(
-                f"Expected string content, got {type(last_message.content)}"
-            )
+            raise ValueError(f"Expected string content, got {type(last_message.content)}")
         text = last_message.content
         calls = parse_tools_from_message(text)
 
@@ -139,14 +129,10 @@ class Act(AutoDSTaskInference):
 
             should_route_to_debugger = False
             agent_config = context.config.agents.get(AUTO_DS_AGENT)
-            debugger_steps = (
-                getattr(agent_config, "debugger_steps", 0) if agent_config else 0
-            )
+            debugger_steps = getattr(agent_config, "debugger_steps", 0) if agent_config else 0
 
             # Check if there's a Python error and debugger is configured
-            response_content = (
-                response.content if hasattr(response, "content") else str(response)
-            )
+            response_content = response.content if hasattr(response, "content") else str(response)
             if not isinstance(response_content, str):
                 response_content = str(response_content)
             if debugger_steps > 0 and _is_python_error(response_content):
@@ -160,18 +146,12 @@ class Act(AutoDSTaskInference):
 
             # Route to debugger or think based on conditions
             next_node = "debugger_think" if should_route_to_debugger else "think"
-            return Command(
-                goto=next_node, update={"messages": state.append_messages([response])}
-            )
+            return Command(goto=next_node, update={"messages": state.append_messages([response])})
 
         if len(calls) > 1:
             return Command(
                 goto="think",
-                update={
-                    "messages": state.append_messages(
-                        [HumanMessage(content=MULTI_TOOL_ERROR)]
-                    )
-                },
+                update={"messages": state.append_messages([HumanMessage(content=MULTI_TOOL_ERROR)])},
             )
 
         return Command(
@@ -181,14 +161,7 @@ class Act(AutoDSTaskInference):
                     [
                         HumanMessage(
                             content=TOOLS_NOT_FOUND_ERROR(
-                                tools={
-                                    ", ".join(
-                                        [
-                                            f"<{tool.name}/>: {tool.usage}"
-                                            for tool in context.toolkit.tools
-                                        ]
-                                    )
-                                }
+                                tools={", ".join([f"<{tool.name}/>: {tool.usage}" for tool in context.toolkit.tools])}
                             )
                         )
                     ]
@@ -198,12 +171,8 @@ class Act(AutoDSTaskInference):
 
 
 class OneShotPlanner(AutoDSTaskInference):
-    async def _runnable(
-        self, state: AutoDSState, context: AutoDSContext
-    ) -> AutoDSState | Command[Any]:
-        self.prompt_generator = PlannerOneShotPromptGenerator(
-            project_path=context.project_path
-        )
+    async def _runnable(self, state: AutoDSState, context: AutoDSContext) -> AutoDSState | Command[Any]:
+        self.prompt_generator = PlannerOneShotPromptGenerator(project_path=context.project_path)
         report_path = Path(context.project_path) / PLANNER_REPORT_PATH
         if (
             report_path.exists()
@@ -226,9 +195,7 @@ class OneShotPlanner(AutoDSTaskInference):
 
 
 class OneShotAnalystSaveReport(AutoDSTaskInference):
-    async def _runnable(
-        self, state: AutoDSState, context: AutoDSContext
-    ) -> AutoDSState | Command[Any]:
+    async def _runnable(self, state: AutoDSState, context: AutoDSContext) -> AutoDSState | Command[Any]:
         report = state["messages"][-1].content
         report_path = Path(context.project_path) / ANALYST_REPORT_PATH
         if not report_path.exists():
@@ -240,22 +207,16 @@ class OneShotAnalystSaveReport(AutoDSTaskInference):
 
 
 class ResearcherReportLoad(AutoDSTaskInference):
-    async def _runnable(
-        self, state: AutoDSState, context: AutoDSContext
-    ) -> AutoDSState | Command[Any]:
+    async def _runnable(self, state: AutoDSState, context: AutoDSContext) -> AutoDSState | Command[Any]:
         report_path = Path(context.project_path) / RESEARCHER_REPORT_PATH
         if not report_path.exists():
             return state
         report = report_path.read_text(encoding="utf-8")
-        return Command(
-            update={"messages": state.append_messages([AIMessage(content=report)])}
-        )
+        return Command(update={"messages": state.append_messages([AIMessage(content=report)])})
 
 
 class ResearcherSaveReport(AutoDSTaskInference):
-    async def _runnable(
-        self, state: AutoDSState, context: AutoDSContext
-    ) -> AutoDSState | Command[Any]:
+    async def _runnable(self, state: AutoDSState, context: AutoDSContext) -> AutoDSState | Command[Any]:
         report = state["messages"][-1].content
         report_path = Path(context.project_path) / RESEARCHER_REPORT_PATH
         report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -269,10 +230,6 @@ class OneShotAnalyst(AutoDSTaskInference):
         super().__init__()
         self.report_path = report_path
 
-    async def _runnable(
-        self, state: AutoDSState, context: AutoDSContext
-    ) -> AutoDSState | Command[Any]:
+    async def _runnable(self, state: AutoDSState, context: AutoDSContext) -> AutoDSState | Command[Any]:
         report = self.report_path.read_text(encoding="utf-8")
-        return Command(
-            update={"messages": state.append_messages([AIMessage(content=report)])}
-        )
+        return Command(update={"messages": state.append_messages([AIMessage(content=report)])})

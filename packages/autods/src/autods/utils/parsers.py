@@ -16,9 +16,7 @@ def parse_json(raw_reply: str | None) -> Dict[str, Any] | None:
 
     def try_json_loads(data: str) -> Dict[str, Any] | None:
         try:
-            repaired_json = json_repair.repair_json(
-                data, ensure_ascii=False, return_objects=True
-            )
+            repaired_json = json_repair.repair_json(data, ensure_ascii=False, return_objects=True)
             if isinstance(repaired_json, dict) and repaired_json != "":
                 return repaired_json
             return None

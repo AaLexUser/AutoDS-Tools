@@ -24,9 +24,7 @@ class TaskInference(ABC, Generic[StateT, TaskContextT]):
     def state_type(self) -> type[StateT] | None:
         return None
 
-    async def runnable(
-        self, state: StateT, runtime: Runtime[ContextT]
-    ) -> StateT | Command[Any]:
+    async def runnable(self, state: StateT, runtime: Runtime[ContextT]) -> StateT | Command[Any]:
         """Adapter wrapper called by LangGraph for each node.
 
         LangGraph commonly passes the state around as a plain dict even when a
@@ -37,20 +35,15 @@ class TaskInference(ABC, Generic[StateT, TaskContextT]):
         context = self._ensure_context(runtime)
         return await self._runnable(state, context)
 
-    async def _runnable(
-        self, state: StateT, context: TaskContextT
-    ) -> StateT | Command[Any]:
+    async def _runnable(self, state: StateT, context: TaskContextT) -> StateT | Command[Any]:
         raise NotImplementedError()
 
     def _ensure_context(self, runtime: Runtime[ContextT]) -> TaskContextT:
         runtime_context = getattr(runtime, "context", None)
         if runtime_context is None:
-            raise RuntimeError(
-                f"{self.context_type.__name__} runtime context is not configured."
-            )
+            raise RuntimeError(f"{self.context_type.__name__} runtime context is not configured.")
         if not isinstance(runtime_context, self.context_type):
             raise RuntimeError(
-                f"Expected runtime context of type {self.context_type.__name__}, "
-                f"got {type(runtime_context).__name__}."
+                f"Expected runtime context of type {self.context_type.__name__}, got {type(runtime_context).__name__}."
             )
         return cast(TaskContextT, runtime_context)

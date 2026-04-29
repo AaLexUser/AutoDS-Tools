@@ -22,10 +22,7 @@ _FORMAT = (
     "{message}"
 )
 
-_FILE_FORMAT = (
-    "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | "
-    "{extra[name]}:{function}:{line} | {message}"
-)
+_FILE_FORMAT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {extra[name]}:{function}:{line} | {message}"
 
 _DEFAULT_APP_NAME = "autods"
 _LEVEL_ENV_VARS = ("AUTODS_LOG_LEVEL", "PYGRAD_LOG_LEVEL")

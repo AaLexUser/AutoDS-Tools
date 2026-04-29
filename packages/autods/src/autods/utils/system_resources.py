@@ -44,9 +44,7 @@ def nvidia_gpus() -> tuple[int, list[str]]:
     """Detect NVIDIA GPUs via nvidia-smi or PyTorch."""
     if which("nvidia-smi"):
         try:
-            out = subprocess.run(
-                ["nvidia-smi", "-L"], capture_output=True, text=True, timeout=1.5
-            )
+            out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=1.5)
             if out.returncode == 0 and out.stdout:
                 lines = [ln.strip() for ln in out.stdout.splitlines() if ln.strip()]
                 count = len(lines)
@@ -80,9 +78,7 @@ def mac_gpu_available() -> bool:
     try:
         import torch
 
-        return bool(
-            getattr(torch.backends, "mps", None) and torch.backends.mps.is_available()
-        )
+        return bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
     except Exception:
         return platform.system() == "Darwin" and platform.machine() in {
             "arm64",

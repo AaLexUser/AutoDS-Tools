@@ -32,9 +32,7 @@ class SessionStorage:
     """SQLite-backed metadata storage with filesystem-backed session paths."""
 
     def __init__(self, root: Path | None = None) -> None:
-        desired_root = root or Path(
-            os.environ.get(SESSION_HOME_ENV, DEFAULT_SESSION_HOME)
-        )
+        desired_root = root or Path(os.environ.get(SESSION_HOME_ENV, DEFAULT_SESSION_HOME))
         self.root = self._prepare_root(desired_root)
         self.database_path = self.root / DATABASE_FILENAME
         self.principals_root = self._ensure_dir(self.root / PRINCIPALS_DIRNAME)
@@ -138,10 +136,7 @@ class SessionStorage:
                 """
             )
             transcript_columns = {
-                row["name"]
-                for row in connection.execute(
-                    "PRAGMA table_info(transcript_messages)"
-                ).fetchall()
+                row["name"] for row in connection.execute("PRAGMA table_info(transcript_messages)").fetchall()
             }
             if "is_streaming" not in transcript_columns:
                 connection.execute(
@@ -198,31 +193,16 @@ class SessionStorage:
         path = self.principals_root / validate_principal_id(principal_id)
         return self._ensure_dir(path) if create else path
 
-    def session_path(
-        self, principal_id: str, session_id: str, *, create: bool = True
-    ) -> Path:
-        path = (
-            self.principal_path(principal_id, create=create)
-            / SESSIONS_DIRNAME
-            / session_id
-        )
+    def session_path(self, principal_id: str, session_id: str, *, create: bool = True) -> Path:
+        path = self.principal_path(principal_id, create=create) / SESSIONS_DIRNAME / session_id
         return self._ensure_dir(path) if create else path
 
-    def workspace_path(
-        self, principal_id: str, session_id: str, *, create: bool = True
-    ) -> Path:
-        path = (
-            self.session_path(principal_id, session_id, create=create)
-            / WORKSPACE_DIRNAME
-        )
+    def workspace_path(self, principal_id: str, session_id: str, *, create: bool = True) -> Path:
+        path = self.session_path(principal_id, session_id, create=create) / WORKSPACE_DIRNAME
         return self._ensure_dir(path) if create else path
 
-    def trace_path(
-        self, principal_id: str, session_id: str, *, create: bool = True
-    ) -> Path:
-        path = (
-            self.session_path(principal_id, session_id, create=create) / TRACE_DIRNAME
-        )
+    def trace_path(self, principal_id: str, session_id: str, *, create: bool = True) -> Path:
+        path = self.session_path(principal_id, session_id, create=create) / TRACE_DIRNAME
         return self._ensure_dir(path) if create else path
 
     def checkpoint_path(self, principal_id: str, session_id: str) -> Path:
@@ -402,9 +382,7 @@ class SessionStorage:
                 )
         return message
 
-    def list_transcript_messages(
-        self, principal_id: str, session_id: str
-    ) -> list[TranscriptMessage]:
+    def list_transcript_messages(self, principal_id: str, session_id: str) -> list[TranscriptMessage]:
         self.get_session(principal_id, session_id)
         with self._lock, self._connect() as connection:
             rows = connection.execute(

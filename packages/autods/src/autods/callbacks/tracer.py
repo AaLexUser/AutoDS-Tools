@@ -21,9 +21,7 @@ class Tracer:
     """Persist LangGraph debug stream chunks for offline inspection."""
 
     def __init__(self, file_path: str | Path | None = None, *, reset: bool = True):
-        self.file_path = (
-            Path(file_path) if file_path is not None else DEFAULT_TRACING_PATH
-        )
+        self.file_path = Path(file_path) if file_path is not None else DEFAULT_TRACING_PATH
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         if reset:
             self.file_path.write_text("", encoding="utf-8")
@@ -45,9 +43,7 @@ class Tracer:
             yaml.safe_dump(payload, handle, sort_keys=False)
             handle.write("---\n")
 
-    def _coerce(
-        self, value: Any, *, _seen: set[int] | None = None, _depth: int = 0
-    ) -> Any:
+    def _coerce(self, value: Any, *, _seen: set[int] | None = None, _depth: int = 0) -> Any:
         if _depth >= 20:
             return repr(value)
         if isinstance(value, bytes):
@@ -79,14 +75,9 @@ class Tracer:
             _seen.add(obj_id)
         try:
             if isinstance(value, dict):
-                return {
-                    str(k): self._coerce(v, _seen=_seen, _depth=_depth + 1)
-                    for k, v in value.items()
-                }
+                return {str(k): self._coerce(v, _seen=_seen, _depth=_depth + 1) for k, v in value.items()}
             if isinstance(value, (list, tuple, set, frozenset)):
-                return [
-                    self._coerce(item, _seen=_seen, _depth=_depth + 1) for item in value
-                ]
+                return [self._coerce(item, _seen=_seen, _depth=_depth + 1) for item in value]
             if isinstance(value, BaseModel):
                 return self._coerce(
                     value.model_dump(mode="json"),
@@ -117,10 +108,7 @@ class Tracer:
                     "additional_kwargs": getattr(value, "additional_kwargs", None),
                 }
             if hasattr(value, "__dict__"):
-                return {
-                    str(k): self._coerce(v, _seen=_seen, _depth=_depth + 1)
-                    for k, v in vars(value).items()
-                }
+                return {str(k): self._coerce(v, _seen=_seen, _depth=_depth + 1) for k, v in vars(value).items()}
             return repr(value)
         finally:
             if needs_tracking:

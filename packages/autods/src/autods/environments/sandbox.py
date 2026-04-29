@@ -119,9 +119,7 @@ class LocalSandboxAdapter(SandboxAdapter):
 
         timed_out = False
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(), timeout=timeout
-            )
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=timeout)
         except TimeoutError:
             timed_out = True
             process.kill()

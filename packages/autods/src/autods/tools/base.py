@@ -43,12 +43,7 @@ class BaseTool(ABC, BaseModel):
     def error_response(self, error: str) -> HumanMessage:
         """Return the error response of the tool."""
         return HumanMessage(
-            content=(
-                f"[ERROR] FIX and TRY again\n"
-                f"{error}\n"
-                "[DEBUG OPTIONS]: \n"
-                "A. Python `help()`"
-            ),
+            content=(f"[ERROR] FIX and TRY again\n{error}\n[DEBUG OPTIONS]: \nA. Python `help()`"),
             role="tool",
         )
 

@@ -62,9 +62,7 @@ class KernelManagement:
 
         venv_dir = Path(self._env_vars["VIRTUAL_ENV"])
         python = str(
-            venv_dir
-            / ("Scripts" if os.name == "nt" else "bin")
-            / ("python.exe" if os.name == "nt" else "python")
+            venv_dir / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
         )
         return KernelSpec(
             argv=[python, "-m", "ipykernel_launcher", "-f", "{connection_file}"],

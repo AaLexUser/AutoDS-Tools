@@ -29,9 +29,7 @@ class SessionService:
 
     def create_session(self, id: str | None = None) -> SessionMetadata:
         new_session_id = id or _generate_session_id()
-        checkpoint_path = self.storage.checkpoint_path(
-            self.principal_id, new_session_id
-        )
+        checkpoint_path = self.storage.checkpoint_path(self.principal_id, new_session_id)
         metadata = SessionMetadata(
             id=new_session_id,
             principal_id=self.principal_id,
@@ -61,14 +59,10 @@ class SessionService:
         metadata.status = SessionStatus(status)
         return self.upsert_session(metadata)
 
-    def append_transcript_message(
-        self, id: str, message: TranscriptMessage
-    ) -> TranscriptMessage:
+    def append_transcript_message(self, id: str, message: TranscriptMessage) -> TranscriptMessage:
         return self.storage.append_transcript_message(self.principal_id, id, message)
 
-    def upsert_transcript_message(
-        self, id: str, message: TranscriptMessage
-    ) -> TranscriptMessage:
+    def upsert_transcript_message(self, id: str, message: TranscriptMessage) -> TranscriptMessage:
         return self.storage.upsert_transcript_message(self.principal_id, id, message)
 
     def list_transcript_messages(self, id: str) -> list[TranscriptMessage]:

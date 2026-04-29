@@ -27,23 +27,17 @@ def render_markdown(content: str) -> None:
         code_content = match.group(0).strip()[3:-3]
 
         if text_content:
-            content_panels.append(
-                Panel(Markdown(text_content), style=style, box=MINIMAL)
-            )
+            content_panels.append(Panel(Markdown(text_content), style=style, box=MINIMAL))
 
         if code_content:
-            content_panels.append(
-                Panel(Markdown(f"```{code_content}"), style=style, box=MINIMAL)
-            )
+            content_panels.append(Panel(Markdown(f"```{code_content}"), style=style, box=MINIMAL))
         start_index = match.end()
 
     remaining_text = content[start_index:].strip()
     if remaining_text:
         content_panels.append(Panel(Markdown(remaining_text), style=style, box=MINIMAL))
 
-    with Live(
-        auto_refresh=False, console=Console(), vertical_overflow="visible"
-    ) as live:
+    with Live(auto_refresh=False, console=Console(), vertical_overflow="visible") as live:
         live.update(Group(*content_panels))
         live.refresh()
 
@@ -55,18 +49,12 @@ def display_code(
 ) -> None:
     """Display code, shell, or markdown content in the console."""
     display_map = {
-        "python": lambda: console.print(
-            Syntax(code, "python", theme="paraiso-dark", line_numbers=True)
-        ),
-        "shell": lambda: console.print(
-            Syntax(code, "bash", theme="paraiso-dark", line_numbers=True)
-        ),
+        "python": lambda: console.print(Syntax(code, "python", theme="paraiso-dark", line_numbers=True)),
+        "shell": lambda: console.print(Syntax(code, "bash", theme="paraiso-dark", line_numbers=True)),
         "markdown": lambda: render_markdown(code),
     }
 
     if language not in display_map:
-        raise ValueError(
-            f"Only support for python, markdown, shell, but got {language}"
-        )
+        raise ValueError(f"Only support for python, markdown, shell, but got {language}")
 
     display_map[language]()

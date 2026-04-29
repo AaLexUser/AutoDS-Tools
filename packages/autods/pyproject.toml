@@ -39,4 +39,4 @@ packages = ["src/autods"]
 include = ["src/autods/**", "tests/**"]
 
 [tool.uv.sources]
-pygrad = { git = "https://github.com/AaLexUser/pygrad" }
+pygrad = { workspace = true }

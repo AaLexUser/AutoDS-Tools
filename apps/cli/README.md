@@ -22,7 +22,7 @@ uv run autods web
 ## Commands
 
 ```bash
-make cli-help
-make test-cli
+just cli-help
+just test-cli
 uv run pytest apps/cli/tests
 ```

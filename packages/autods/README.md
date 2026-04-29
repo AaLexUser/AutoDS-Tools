@@ -38,6 +38,6 @@ packages/autods/
 ## Commands
 
 ```bash
-make test-core
+just test-core
 uv run pytest packages/autods/tests
 ```

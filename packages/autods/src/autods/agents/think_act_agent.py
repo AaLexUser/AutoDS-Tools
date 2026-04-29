@@ -26,9 +26,7 @@ _AGENT_START_INDEX_KEY = "agent_start_index"
 
 def _create_remove_messages(messages: list[BaseMessage]) -> list[RemoveMessage]:
     """Create RemoveMessage commands for all messages with IDs."""
-    return [
-        RemoveMessage(id=msg.id) for msg in messages if hasattr(msg, "id") and msg.id
-    ]
+    return [RemoveMessage(id=msg.id) for msg in messages if hasattr(msg, "id") and msg.id]
 
 
 class ThinkActAgent(TaskInference[StateT, ContextT], Generic[StateT, ContextT]):
@@ -84,14 +82,10 @@ class Think(ThinkActAgent[StateT, ContextT]):
                 "session_time": session_time,
                 "steps": f"{self._step_count}/{self.max_steps}",
             }
-            new_history[-1] = HumanMessage(
-                content=str(last_message.content) + f"\n{turn_info}"
-            )
+            new_history[-1] = HumanMessage(content=str(last_message.content) + f"\n{turn_info}")
         return new_history
 
-    async def _runnable(
-        self, state: StateT, context: ContextT
-    ) -> StateT | Command[Any]:
+    async def _runnable(self, state: StateT, context: ContextT) -> StateT | Command[Any]:
         messages: list[BaseMessage] = state.messages
 
         if _ORIGINAL_HISTORY_KEY not in self._shared:
@@ -101,9 +95,7 @@ class Think(ThinkActAgent[StateT, ContextT]):
             if self.last_messages_cnt > 0:
                 if len(messages) > self.last_messages_cnt:
                     state.replace_messages(state.messages_tail(self.last_messages_cnt))
-                    return Command(
-                        goto=self.think_node, update={"messages": state.messages}
-                    )
+                    return Command(goto=self.think_node, update={"messages": state.messages})
 
         # Run initial messages prompt
         response = self.prompt_generator.get_next_initial_message_prompt()
@@ -139,9 +131,7 @@ class Act(ThinkActAgent[StateT, ContextT]):
         if self._initial_message_count is None:
             self._initial_message_count = count
 
-    def _build_termination_output(
-        self, state: StateT, artifact: str
-    ) -> list[BaseMessage | RemoveMessage]:
+    def _build_termination_output(self, state: StateT, artifact: str) -> list[BaseMessage | RemoveMessage]:
         """Build the final message output when agent terminates."""
         messages: list[BaseMessage] = state.messages
         artifact_message = HumanMessage(content=artifact)
@@ -152,9 +142,7 @@ class Act(ThinkActAgent[StateT, ContextT]):
         # Simple case: no history restoration needed
         if _ORIGINAL_HISTORY_KEY not in self._shared:
             if self.throw_history:
-                messages_to_remove = _create_remove_messages(
-                    messages[self._initial_message_count :]
-                )
+                messages_to_remove = _create_remove_messages(messages[self._initial_message_count :])
                 return messages_to_remove + [artifact_message]
             return [artifact_message]
 
@@ -189,9 +177,7 @@ class Act(ThinkActAgent[StateT, ContextT]):
         self._shared.pop(_ORIGINAL_HISTORY_KEY, None)
         self._shared.pop(_AGENT_START_INDEX_KEY, None)
 
-    async def _runnable(
-        self, state: StateT, context: ContextT
-    ) -> StateT | Command[Any]:
+    async def _runnable(self, state: StateT, context: ContextT) -> StateT | Command[Any]:
         messages: list[BaseMessage] = state.messages
 
         self.set_initial_message_count(len(messages) - 1)
@@ -216,12 +202,7 @@ class Act(ThinkActAgent[StateT, ContextT]):
         text = last_message.content if isinstance(last_message.content, str) else ""
 
         if "TERMINATE" in text or (self._step_count > self.max_steps + 3):
-            artifact = (
-                text.replace("<TERMINATE>", "")
-                .replace("</TERMINATE>", "")
-                .replace("TERMINATE", "")
-                .strip()
-            )
+            artifact = text.replace("<TERMINATE>", "").replace("</TERMINATE>", "").replace("TERMINATE", "").strip()
 
             if self.verificate_fn is not None:
                 is_valid, error_message = self.verificate_fn(artifact)
@@ -233,11 +214,7 @@ class Act(ThinkActAgent[StateT, ContextT]):
                     )
                     return Command(
                         goto=self.think_node,
-                        update={
-                            "messages": state.append_messages(
-                                [HumanMessage(content=error_content)]
-                            )
-                        },
+                        update={"messages": state.append_messages([HumanMessage(content=error_content)])},
                     )
 
             output = self._build_termination_output(state, artifact)
@@ -268,8 +245,7 @@ class Act(ThinkActAgent[StateT, ContextT]):
                     "messages": state.append_messages(
                         [
                             HumanMessage(
-                                content="[ERROR] Multiple tool calls found. "
-                                "Only one tool call per turn is allowed."
+                                content="[ERROR] Multiple tool calls found. Only one tool call per turn is allowed."
                             )
                         ]
                     )
@@ -277,18 +253,12 @@ class Act(ThinkActAgent[StateT, ContextT]):
             )
 
         if len(calls) == 0:
-            tool_list = ", ".join(
-                f"<{tool.name}/>: {tool.usage}" for tool in self.toolkit.tools
-            )
+            tool_list = ", ".join(f"<{tool.name}/>: {tool.usage}" for tool in self.toolkit.tools)
             return Command(
                 goto=self.think_node,
                 update={
                     "messages": state.append_messages(
-                        [
-                            HumanMessage(
-                                content=f"[ERROR] No tool calls found. Available tools: {tool_list}"
-                            )
-                        ]
+                        [HumanMessage(content=f"[ERROR] No tool calls found. Available tools: {tool_list}")]
                     )
                 },
             )

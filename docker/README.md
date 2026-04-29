@@ -9,8 +9,8 @@ Right now it includes:
 ## Commands
 
 ```bash
-make cognee-up
-make cognee-down
+just cognee-up
+just cognee-down
 ```
 
 These targets call Docker Compose against the files in this directory rather than from the repository root.

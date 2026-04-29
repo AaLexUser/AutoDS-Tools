@@ -399,9 +399,7 @@ def test_hosted_runtime_persists_tool_output_as_environment_messages(
     assert transcript.json()["messages"][1]["content"] == (
         ">>> [bash #1]\nalpha\nbeta\n[image output omitted: 1 image]"
     )
-    assert transcript.json()["messages"][2]["content"] == (
-        "I found the relevant files and will inspect them next."
-    )
+    assert transcript.json()["messages"][2]["content"] == ("I found the relevant files and will inspect them next.")
 
 
 def test_environment_transcript_keeps_full_content_when_marked_truncated(

@@ -7,10 +7,10 @@ It connects to the FastAPI backend and provides chat, session management, datase
 ## Commands
 
 ```bash
-make frontend-install
-make frontend-dev
-make frontend-lint
-make frontend-build
+just frontend-install
+just frontend-dev
+just frontend-lint
+just frontend-build
 ```
 
 Or manually:

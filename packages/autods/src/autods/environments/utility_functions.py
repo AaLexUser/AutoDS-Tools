@@ -84,9 +84,7 @@ def detect_ipython() -> bool:
         return False
 
 
-def display_image(
-    image_base64: str, interaction_type: Literal["ipython", None]
-) -> None:
+def display_image(image_base64: str, interaction_type: Literal["ipython", None]) -> None:
     """Display a figure from base64-encoded image data."""
     try:
         image_bytes = base64.b64decode(image_base64)

@@ -35,10 +35,7 @@ def retry_with(
 
                 sleep_time = random.randint(3, 30)
                 logger.warning(
-                    (
-                        f"{provider_name} API call failed: {exc}. "
-                        f"Sleeping for {sleep_time} seconds before retry"
-                    ),
+                    (f"{provider_name} API call failed: {exc}. Sleeping for {sleep_time} seconds before retry"),
                     exc_info=True,
                 )
                 time.sleep(sleep_time)

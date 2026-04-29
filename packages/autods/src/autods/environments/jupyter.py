@@ -91,9 +91,7 @@ class JupyterExecutor:
         from rich.console import Console
 
         self.console = Console()
-        self.interaction: Literal["ipython", None] = (
-            "ipython" if detect_ipython() else None
-        )
+        self.interaction: Literal["ipython", None] = "ipython" if detect_ipython() else None
         self.env_vars = env_vars
 
         active_executors.append(self)
@@ -104,9 +102,7 @@ class JupyterExecutor:
             return
 
         venv_dir = Path(self.env_vars["VIRTUAL_ENV"])
-        python = venv_dir / ("Scripts" if os.name == "nt" else "bin") / (
-            "python.exe" if os.name == "nt" else "python"
-        )
+        python = venv_dir / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
         python_executable = str(python if python.exists() else Path(sys.executable))
         env = dict(self.env_vars)
 
@@ -136,17 +132,13 @@ class JupyterExecutor:
                 logger.debug("Loaded existing notebook from %s", self.nb_path)
                 return loaded_nb
             except Exception as exc:
-                logger.warning(
-                    "Failed to load existing notebook at %s: %s", self.nb_path, exc
-                )
+                logger.warning("Failed to load existing notebook at %s: %s", self.nb_path, exc)
 
         return new_notebook()
 
     def _has_code_cells_to_replay(self) -> bool:
         """Check if notebook has code cells and exists on disk."""
-        has_code_cells = any(
-            getattr(cell, "cell_type", None) == "code" for cell in self.nb.cells
-        )
+        has_code_cells = any(getattr(cell, "cell_type", None) == "code" for cell in self.nb.cells)
         return has_code_cells and self.nb_path.exists()
 
     async def _ensure_notebook_replayed(self) -> None:
@@ -198,9 +190,7 @@ class JupyterExecutor:
         """Reset the kernel completely."""
         await self.kernel_manager.reset()
 
-        self._notebook_replayed = not any(
-            getattr(cell, "cell_type", None) == "code" for cell in self.nb.cells
-        )
+        self._notebook_replayed = not any(getattr(cell, "cell_type", None) == "code" for cell in self.nb.cells)
 
     def add_code_cell(self, code: str) -> None:
         """Add a new code cell to the notebook."""
@@ -210,9 +200,7 @@ class JupyterExecutor:
         """Add a new markdown cell to the notebook."""
         self.nb.cells.append(new_markdown_cell(source=markdown))
 
-    def display_image(
-        self, image_base64: str, interaction_type: Literal["ipython", None]
-    ) -> None:
+    def display_image(self, image_base64: str, interaction_type: Literal["ipython", None]) -> None:
         """Display a figure from base64-encoded image data."""
         display_image_util(image_base64, interaction_type)
 
@@ -299,9 +287,7 @@ class JupyterExecutor:
                 )
             try:
                 # Poll with 10s interval to check deadline regularly
-                msg = await kernel_client._async_get_iopub_msg(
-                    timeout=min(remaining, 10.0)
-                )
+                msg = await kernel_client._async_get_iopub_msg(timeout=min(remaining, 10.0))
 
                 if msg["parent_header"].get("msg_id") != msg_id:
                     continue
@@ -324,9 +310,7 @@ class JupyterExecutor:
 
                 # Treat "Empty" messages as normal timeouts (kernel is busy, no message yet)
                 if "empty" in error_msg_lower:
-                    logger.debug(
-                        "No kernel message available yet (Empty), kernel may be busy with computation"
-                    )
+                    logger.debug("No kernel message available yet (Empty), kernel may be busy with computation")
                     continue
 
                 # For other exceptions, treat as actual communication failure
@@ -361,9 +345,7 @@ class JupyterExecutor:
         try:
             await self._ensure_notebook_replayed()
         except Exception as replay_error:
-            message = (
-                f"Failed to replay existing notebook before execution: {replay_error}"
-            )
+            message = f"Failed to replay existing notebook before execution: {replay_error}"
             return Observation(is_success=False, message=message, base64_images=[])
 
         display_code(code, self.console, language)
@@ -374,9 +356,7 @@ class JupyterExecutor:
             elif language == "markdown":
                 return self._run_markdown(code)
             else:
-                raise ValueError(
-                    f"Only support for language: python, markdown, but got {language}"
-                )
+                raise ValueError(f"Only support for language: python, markdown, but got {language}")
         except KeyboardInterrupt:
             logger.warning("Operation interrupted by user")
             return Observation(
@@ -410,9 +390,7 @@ class JupyterExecutor:
         output_dir = self.workspace / ".outputs"
         output_path = output_dir / f"cell_{cell_index}_{int(time.time())}.txt"
 
-        success, output, images = await self.run_cell(
-            self.nb.cells[-1], cell_index, timeout, save_path=output_path
-        )
+        success, output, images = await self.run_cell(self.nb.cells[-1], cell_index, timeout, save_path=output_path)
 
         if "!pip" in code:
             output = output[-INSTALL_KEEPLEN:]

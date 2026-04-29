@@ -16,7 +16,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Optional, Protocol
 
-import pygrad as pg
 import yaml
 from fastapi import (
     FastAPI,
@@ -39,6 +38,7 @@ from langchain_core.messages import (
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
+import pygrad as pg
 from autods.agents.autods import AutoDSAgent
 from autods.auth import AuthUser, UserStatus
 from autods.runtime.runner import AgentRunner
@@ -201,9 +201,7 @@ class WebSocketManager:
                 return
             self.active_connections.setdefault(session_id, set()).add(websocket)
 
-    async def disconnect(
-        self, session_id: str, websocket: WebSocket | None = None
-    ) -> None:
+    async def disconnect(self, session_id: str, websocket: WebSocket | None = None) -> None:
         async with self._lock:
             connections = self.active_connections.get(session_id)
             if not connections:
@@ -271,9 +269,7 @@ class HostedAgentRuntime(SessionRuntime):
         if run_options:
             merged_opts.update({key: value for key, value in run_options.items()})
         service = SessionService(session.principal_id, storage=self.storage)
-        workspace = Path(
-            merged_opts.get("project_path") or service.workspace_path(session.id)
-        )
+        workspace = Path(merged_opts.get("project_path") or service.workspace_path(session.id))
         merged_opts["project_path"] = str(workspace.resolve())
         app_config = load_config(
             provider=merged_opts.get("provider"),
@@ -349,9 +345,7 @@ class HostedAgentRuntime(SessionRuntime):
                 return
             try:
                 main_loop.call_soon_threadsafe(
-                    lambda: asyncio.create_task(
-                        self.manager.send_payload(session.id, payload)
-                    )
+                    lambda: asyncio.create_task(self.manager.send_payload(session.id, payload))
                 )
             except RuntimeError:
                 logger.debug("Skipping websocket broadcast for closed event loop")
@@ -402,9 +396,7 @@ class HostedAgentRuntime(SessionRuntime):
                     if not token:
                         return
                     incoming_id = (
-                        getattr(message, "id", None)
-                        or current_message_id
-                        or f"msg-{datetime.now(UTC).timestamp()}"
+                        getattr(message, "id", None) or current_message_id or f"msg-{datetime.now(UTC).timestamp()}"
                     )
                     if current_message_id and incoming_id != current_message_id:
                         _finalize_assistant()
@@ -673,14 +665,10 @@ def create_app(
     )
 
     def _principal_from_request(request: Request) -> str | None:
-        return request.headers.get(HEADER_PRINCIPAL_NAME) or request.cookies.get(
-            COOKIE_PRINCIPAL_NAME
-        )
+        return request.headers.get(HEADER_PRINCIPAL_NAME) or request.cookies.get(COOKIE_PRINCIPAL_NAME)
 
     def _principal_from_websocket(websocket: WebSocket) -> str | None:
-        return websocket.headers.get(HEADER_PRINCIPAL_NAME) or websocket.cookies.get(
-            COOKIE_PRINCIPAL_NAME
-        )
+        return websocket.headers.get(HEADER_PRINCIPAL_NAME) or websocket.cookies.get(COOKIE_PRINCIPAL_NAME)
 
     def _require_principal(request: Request) -> str:
         if auth_settings.enabled:
@@ -813,7 +801,9 @@ def create_app(
     async def list_auth_users(request: Request):
         if not auth_settings.enabled:
             raise HTTPException(status_code=404, detail="Auth mode disabled")
-        user = auth_manager.resolve_cli_user(resolve_bearer_token(request)) or auth_manager.resolve_browser_user(request)
+        user = auth_manager.resolve_cli_user(resolve_bearer_token(request)) or auth_manager.resolve_browser_user(
+            request
+        )
         require_admin_user(user)
         return [_auth_user_response(item) for item in storage.list_auth_users()]
 
@@ -822,8 +812,7 @@ def create_app(
         if not auth_settings.enabled:
             raise HTTPException(status_code=404, detail="Auth mode disabled")
         admin = require_admin_user(
-            auth_manager.resolve_cli_user(resolve_bearer_token(request))
-            or auth_manager.resolve_browser_user(request)
+            auth_manager.resolve_cli_user(resolve_bearer_token(request)) or auth_manager.resolve_browser_user(request)
         )
         user = _set_auth_user_status(
             user_id,
@@ -842,8 +831,7 @@ def create_app(
         if not auth_settings.enabled:
             raise HTTPException(status_code=404, detail="Auth mode disabled")
         admin = require_admin_user(
-            auth_manager.resolve_cli_user(resolve_bearer_token(request))
-            or auth_manager.resolve_browser_user(request)
+            auth_manager.resolve_cli_user(resolve_bearer_token(request)) or auth_manager.resolve_browser_user(request)
         )
         user = _set_auth_user_status(user_id, status=UserStatus.DISABLED)
         storage.append_audit_log(
@@ -969,9 +957,7 @@ def create_app(
             await manager.clear_session_deleting(session.id)
 
     @app.post("/api/sessions/{session_id}/dataset")
-    async def upload_dataset(
-        request: Request, session_id: str, files: list[UploadFile] = File(...)
-    ):
+    async def upload_dataset(request: Request, session_id: str, files: list[UploadFile] = File(...)):
         principal_id = _require_principal(request)
         service = _session_service(principal_id)
         session = _get_owned_session(principal_id, session_id)
@@ -992,9 +978,7 @@ def create_app(
         return {"paths": uploaded_paths}
 
     @app.post("/api/sessions/{session_id}/install")
-    async def install_libraries(
-        request: Request, session_id: str, body: InstallLibrariesRequest
-    ):
+    async def install_libraries(request: Request, session_id: str, body: InstallLibrariesRequest):
         principal_id = _require_principal(request)
         service = _session_service(principal_id)
         session = _get_owned_session(principal_id, session_id)
@@ -1026,9 +1010,7 @@ def create_app(
                 await run_in_threadpool(_run_venv_create)
             result = await run_in_threadpool(_run_pip_install)
         except subprocess.TimeoutExpired as exc:
-            raise HTTPException(
-                status_code=500, detail="Installation timed out after 5 minutes"
-            ) from exc
+            raise HTTPException(status_code=500, detail="Installation timed out after 5 minutes") from exc
         except Exception as exc:
             logger.exception("Failed to install libraries")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -1094,9 +1076,7 @@ def create_app(
             return items
 
         tree = scan_dir(root)
-        tree_hash = hashlib.md5(
-            json.dumps(tree, sort_keys=True, default=str).encode("utf-8")
-        ).hexdigest()
+        tree_hash = hashlib.md5(json.dumps(tree, sort_keys=True, default=str).encode("utf-8")).hexdigest()
         return {"root": str(root), "tree": tree, "files": [], "hash": tree_hash}
 
     def _create_zip_sync(root: Path) -> io.BytesIO:
@@ -1176,11 +1156,7 @@ def create_app(
         _require_principal(request)
         from autods.constants import DEFAULT_CONFIG_PATH
 
-        return {
-            "yaml": DEFAULT_CONFIG_PATH.read_text()
-            if DEFAULT_CONFIG_PATH.exists()
-            else ""
-        }
+        return {"yaml": DEFAULT_CONFIG_PATH.read_text() if DEFAULT_CONFIG_PATH.exists() else ""}
 
     @app.post("/api/config")
     async def update_config(request: Request, body: dict[str, str]):
@@ -1198,9 +1174,7 @@ def create_app(
     @app.websocket("/api/ws/{session_id}")
     async def websocket_endpoint(websocket: WebSocket, session_id: str):
         if auth_settings.enabled:
-            browser_user = auth_manager.authenticate_browser_user(
-                websocket.cookies.get(WORKOS_SESSION_COOKIE_NAME)
-            )
+            browser_user = auth_manager.authenticate_browser_user(websocket.cookies.get(WORKOS_SESSION_COOKIE_NAME))
             try:
                 principal_id = require_approved_user(browser_user).id
             except HTTPException as exc:

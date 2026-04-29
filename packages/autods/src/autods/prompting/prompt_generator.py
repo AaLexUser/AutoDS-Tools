@@ -86,9 +86,7 @@ class AutoDSPromptGenerator(PromptGenerator):
     @property
     def system_prompt(self) -> SystemMessage:
         rules = prompt_store.load("autods.md")
-        tool_guidance = "\n\n---\n\n".join(
-            [tool.get_prompt() for tool in self.tools if tool.name != "web_search"]
-        )
+        tool_guidance = "\n\n---\n\n".join([tool.get_prompt() for tool in self.tools if tool.name != "web_search"])
         return SystemMessage(content="\n\n".join([rules, tool_guidance]))
 
     # @property
@@ -120,9 +118,7 @@ class AutoDSPromptGenerator(PromptGenerator):
 
 
 class AnalystPromptGenerator(PromptGenerator):
-    def __init__(
-        self, project_path: str, tools: list[BaseTool], steps_limit: int
-    ) -> None:
+    def __init__(self, project_path: str, tools: list[BaseTool], steps_limit: int) -> None:
         super().__init__()
         self.project_path = project_path
         self.tools: list[BaseTool] = tools
@@ -131,9 +127,7 @@ class AnalystPromptGenerator(PromptGenerator):
     @property
     def system_prompt(self) -> SystemMessage:
         tool_guidance = "\n\n---\n\n".join([tool.get_prompt() for tool in self.tools])
-        return SystemMessage(
-            content="\n\n".join([prompt_store.load("analyst.md"), tool_guidance])
-        )
+        return SystemMessage(content="\n\n".join([prompt_store.load("analyst.md"), tool_guidance]))
 
     # @property
     # def initial_messages_prompts(self) -> list[AIMessage]:
@@ -196,9 +190,7 @@ class AnalystPromptGenerator(PromptGenerator):
 
 
 class ResearcherPromptGenerator(PromptGenerator):
-    def __init__(
-        self, project_path: str, tools: list[BaseTool], steps_limit: int
-    ) -> None:
+    def __init__(self, project_path: str, tools: list[BaseTool], steps_limit: int) -> None:
         super().__init__()
         self.project_path = project_path
         self.tools: list[BaseTool] = tools
@@ -207,9 +199,7 @@ class ResearcherPromptGenerator(PromptGenerator):
     @property
     def system_prompt(self) -> SystemMessage:
         tool_guidance = "\n\n---\n\n".join([tool.get_prompt() for tool in self.tools])
-        return SystemMessage(
-            content="\n\n".join([prompt_store.load("researcher.md"), tool_guidance])
-        )
+        return SystemMessage(content="\n\n".join([prompt_store.load("researcher.md"), tool_guidance]))
 
     # @property
     # def initial_messages_prompts(self) -> list[AIMessage]:
@@ -261,9 +251,7 @@ class PlannerOneShotPromptGenerator(PromptGenerator):
 
 
 class DebuggerPromptGenerator(PromptGenerator):
-    def __init__(
-        self, project_path: str, tools: list[BaseTool], steps_limit: int
-    ) -> None:
+    def __init__(self, project_path: str, tools: list[BaseTool], steps_limit: int) -> None:
         super().__init__()
         self.project_path = project_path
         self.tools: list[BaseTool] = tools
@@ -272,9 +260,7 @@ class DebuggerPromptGenerator(PromptGenerator):
     @property
     def system_prompt(self) -> SystemMessage:
         tool_guidance = "\n\n---\n\n".join([tool.get_prompt() for tool in self.tools])
-        return SystemMessage(
-            content="\n\n".join([prompt_store.load("debugger.md"), tool_guidance])
-        )
+        return SystemMessage(content="\n\n".join([prompt_store.load("debugger.md"), tool_guidance]))
 
     @property
     def user_prompt(self) -> HumanMessage:
@@ -289,9 +275,7 @@ class DebuggerPromptGenerator(PromptGenerator):
 
 
 class PresenterPromptGenerator(PromptGenerator):
-    def __init__(
-        self, project_path: str, tools: list[BaseTool], steps_limit: int
-    ) -> None:
+    def __init__(self, project_path: str, tools: list[BaseTool], steps_limit: int) -> None:
         super().__init__()
         self.project_path = project_path
         self.tools: list[BaseTool] = tools
@@ -300,9 +284,7 @@ class PresenterPromptGenerator(PromptGenerator):
     @property
     def system_prompt(self) -> SystemMessage:
         tool_guidance = "\n\n---\n\n".join([tool.get_prompt() for tool in self.tools])
-        return SystemMessage(
-            content="\n\n".join([prompt_store.load("presenter.md"), tool_guidance])
-        )
+        return SystemMessage(content="\n\n".join([prompt_store.load("presenter.md"), tool_guidance]))
 
     @property
     def initial_messages_prompts(self) -> list[AIMessage]:

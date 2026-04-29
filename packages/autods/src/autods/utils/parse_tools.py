@@ -54,9 +54,7 @@ def _parse_xml_tool_calls(text: str, positions: List[Tuple[int, BaseToolCall]]) 
                 positions.append((match.start(), tool_call))
 
 
-def _parse_self_closing_xml_tags(
-    text: str, positions: List[Tuple[int, BaseToolCall]]
-) -> None:
+def _parse_self_closing_xml_tags(text: str, positions: List[Tuple[int, BaseToolCall]]) -> None:
     """Extract self-closing XML-style tool calls like <tag attr="value" />."""
     pattern = re.compile(
         r"<(?P<tag>[A-Za-z_][A-Za-z0-9_\-]*)\b(?P<attrs>[^>]*?)\s*/>",

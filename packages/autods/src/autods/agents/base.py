@@ -24,14 +24,10 @@ class BaseAgent(ABC):
         return workflow.compile()
 
     @abstractmethod
-    def runnable(
-        self, checkpointer: BaseCheckpointSaver[Any] | None = None
-    ) -> CompiledStateGraph[Any, Any, Any, Any]:
+    def runnable(self, checkpointer: BaseCheckpointSaver[Any] | None = None) -> CompiledStateGraph[Any, Any, Any, Any]:
         """Return the compiled state graph for the agent."""
 
-    def as_tool(
-        self, checkpointer: BaseCheckpointSaver[Any] | None = None
-    ) -> StructuredTool:
+    def as_tool(self, checkpointer: BaseCheckpointSaver[Any] | None = None) -> StructuredTool:
         """Return an asynchronous runnable tool for the agent."""
         raise NotImplementedError
 

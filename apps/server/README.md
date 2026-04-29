@@ -22,7 +22,7 @@ Default address: `http://localhost:8000`
 ## Commands
 
 ```bash
-make server-dev
-make test-server
+just server-dev
+just test-server
 uv run pytest apps/server/tests
 ```

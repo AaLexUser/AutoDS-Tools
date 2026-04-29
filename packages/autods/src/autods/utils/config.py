@@ -59,9 +59,7 @@ class ModelConfig(BaseModel):
             if model_providers and provider in model_providers:
                 self.model_provider = model_providers[provider]
             elif api_key is None:
-                raise ConfigError(
-                    "To register a new model provider, an api_key should be provided"
-                )
+                raise ConfigError("To register a new model provider, an api_key should be provided")
             else:
                 self.model_provider = ModelProvider(
                     api_key=api_key,
@@ -110,9 +108,7 @@ class AgentConfig(BaseModel):
         mcp_servers_config = {}
         allowed_servers = agent_cfg_dict.get("allow_mcp_servers", [])
         if not isinstance(allowed_servers, list):
-            raise ConfigError(
-                f"allow_mcp_servers for agent '{agent_name}' must be a list"
-            )
+            raise ConfigError(f"allow_mcp_servers for agent '{agent_name}' must be a list")
 
         for server in allowed_servers:
             server_cfg = config.mcp_servers.get(server)
@@ -128,18 +124,12 @@ class AgentConfig(BaseModel):
         # Resolve model reference
         model_name = agent_cfg_dict.get("model")
         if not isinstance(model_name, str):
-            raise ConfigError(
-                f"Model reference for agent '{agent_name}' must be a string"
-            )
+            raise ConfigError(f"Model reference for agent '{agent_name}' must be a string")
 
         try:
-            agent_cfg_dict["model"] = Config.resolve_model_reference(
-                config=config, model_name=model_name
-            )
+            agent_cfg_dict["model"] = Config.resolve_model_reference(config=config, model_name=model_name)
         except ConfigError as exc:
-            raise ConfigError(
-                f"Model '{model_name}' referenced by agent '{agent_name}' is not defined"
-            ) from exc
+            raise ConfigError(f"Model '{model_name}' referenced by agent '{agent_name}' is not defined") from exc
         # Choose specialized config class for well-known agents
         config_cls: type[AgentConfig] = cls
         if agent_name == AUTO_DS_AGENT:
@@ -180,9 +170,7 @@ class Config(BaseModel):
         config_string: str | None = None,
     ) -> "Config":
         if config_file and config_string:
-            raise ConfigError(
-                "Only one of config_file or config_string should be provided"
-            )
+            raise ConfigError("Only one of config_file or config_string should be provided")
 
         # Parse YAML config from file or string
         try:
@@ -213,9 +201,7 @@ class Config(BaseModel):
         if model_providers is not None and len(model_providers.keys()) > 0:
             config_model_providers: dict[str, ModelProvider] = {}
             for model_provider_name, model_provider_config in model_providers.items():
-                config_model_providers[model_provider_name] = (
-                    ModelProvider.model_validate(model_provider_config)
-                )
+                config_model_providers[model_provider_name] = ModelProvider.model_validate(model_provider_config)
             config.model_providers = config_model_providers
         else:
             raise ConfigError("No model providers provided")
@@ -227,9 +213,7 @@ class Config(BaseModel):
             for model_name, model_config in models.items():
                 model_provider_ref = model_config.get("model_provider", None)
                 if model_provider_ref is None:
-                    raise ConfigError(
-                        f"Model provider not specified for model: {model_name}"
-                    )
+                    raise ConfigError(f"Model provider not specified for model: {model_name}")
                 model_provider = config.model_providers.get(model_provider_ref, None)
                 if model_provider is None:
                     raise ConfigError(
@@ -257,9 +241,7 @@ class Config(BaseModel):
         agent_configs: dict[str, AgentConfig] = {}
         if agents is not None and len(agents.keys()) > 0:
             for agent_name, agent_config in agents.items():
-                agent_configs[agent_name] = AgentConfig.from_dict(
-                    agent_name, agent_config, config
-                )
+                agent_configs[agent_name] = AgentConfig.from_dict(agent_name, agent_config, config)
             config.agents = agent_configs
         else:
             raise ConfigError("No agent configs provided")

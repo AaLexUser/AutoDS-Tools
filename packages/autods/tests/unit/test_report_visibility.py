@@ -38,9 +38,7 @@ def test_autods_prompt_generator_loads_saved_reports(tmp_path: Path) -> None:
     (project_path / ANALYST_REPORT_PATH).parent.mkdir(parents=True, exist_ok=True)
     (project_path / ANALYST_REPORT_PATH).write_text("analyst body", encoding="utf-8")
     (project_path / PLANNER_REPORT_PATH).write_text("planner body", encoding="utf-8")
-    (project_path / RESEARCHER_REPORT_PATH).write_text(
-        "researcher body", encoding="utf-8"
-    )
+    (project_path / RESEARCHER_REPORT_PATH).write_text("researcher body", encoding="utf-8")
 
     prompt = AutoDSPromptGenerator(
         project_path=str(project_path),
@@ -57,9 +55,7 @@ def test_researcher_prompt_generator_loads_saved_reports(tmp_path: Path) -> None
     (project_path / ANALYST_REPORT_PATH).parent.mkdir(parents=True, exist_ok=True)
     (project_path / ANALYST_REPORT_PATH).write_text("analyst body", encoding="utf-8")
     (project_path / PLANNER_REPORT_PATH).write_text("planner body", encoding="utf-8")
-    (project_path / RESEARCHER_REPORT_PATH).write_text(
-        "researcher body", encoding="utf-8"
-    )
+    (project_path / RESEARCHER_REPORT_PATH).write_text("researcher body", encoding="utf-8")
 
     prompt = ResearcherPromptGenerator(
         project_path=str(project_path),
@@ -77,9 +73,7 @@ def test_planner_prompt_generator_loads_saved_reports(tmp_path: Path) -> None:
     (project_path / ANALYST_REPORT_PATH).parent.mkdir(parents=True, exist_ok=True)
     (project_path / ANALYST_REPORT_PATH).write_text("analyst body", encoding="utf-8")
     (project_path / PLANNER_REPORT_PATH).write_text("planner body", encoding="utf-8")
-    (project_path / RESEARCHER_REPORT_PATH).write_text(
-        "researcher body", encoding="utf-8"
-    )
+    (project_path / RESEARCHER_REPORT_PATH).write_text("researcher body", encoding="utf-8")
 
     prompt = PlannerOneShotPromptGenerator(project_path=str(project_path)).user_prompt
 
@@ -97,9 +91,7 @@ async def test_analyst_save_report_persists_and_removes_visible_report(
     result = await OneShotAnalystSaveReport()._runnable(state, context)
 
     assert result is state
-    assert (tmp_path / ANALYST_REPORT_PATH).read_text(encoding="utf-8") == (
-        "internal analyst report"
-    )
+    assert (tmp_path / ANALYST_REPORT_PATH).read_text(encoding="utf-8") == ("internal analyst report")
     assert state.messages == []
 
 
@@ -112,9 +104,7 @@ async def test_researcher_save_report_persists_and_removes_visible_report(
     result = await ResearcherSaveReport()._runnable(state, context)
 
     assert result is state
-    assert (tmp_path / RESEARCHER_REPORT_PATH).read_text(encoding="utf-8") == (
-        "internal researcher report"
-    )
+    assert (tmp_path / RESEARCHER_REPORT_PATH).read_text(encoding="utf-8") == ("internal researcher report")
     assert state.messages == []
 
 
@@ -131,7 +121,5 @@ async def test_one_shot_planner_writes_report_without_appending_chat_copy(
     result = await OneShotPlanner()._runnable(state, context)
 
     assert result is state
-    assert (tmp_path / PLANNER_REPORT_PATH).read_text(encoding="utf-8") == (
-        "planner artifact"
-    )
+    assert (tmp_path / PLANNER_REPORT_PATH).read_text(encoding="utf-8") == ("planner artifact")
     assert state.messages == []

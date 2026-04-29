@@ -63,9 +63,7 @@ class AgentRunner:
     async def get_state(self):
         """Retrieve the current state of the agent."""
         try:
-            async with AsyncSqliteSaver.from_conn_string(
-                self.session.checkpoint_nsp
-            ) as checkpointer:
+            async with AsyncSqliteSaver.from_conn_string(self.session.checkpoint_nsp) as checkpointer:
                 compiled = self.agent.runnable(checkpointer=checkpointer)
                 return await compiled.aget_state(self._config)
         except Exception as exc:
@@ -103,9 +101,7 @@ class AgentRunner:
         stream_modes = self._get_stream_modes(debug)
 
         try:
-            async with AsyncSqliteSaver.from_conn_string(
-                self.session.checkpoint_nsp
-            ) as checkpointer:
+            async with AsyncSqliteSaver.from_conn_string(self.session.checkpoint_nsp) as checkpointer:
                 compiled = self.agent.runnable(checkpointer=checkpointer)
 
                 async for mode, chunk in compiled.astream(
@@ -133,9 +129,7 @@ class AgentRunner:
         if not final_messages:
             final_messages = [user_message]
 
-        return StreamResult(
-            final_text=final_text, messages=final_messages, user_message=user_message
-        )
+        return StreamResult(final_text=final_text, messages=final_messages, user_message=user_message)
 
     async def _shutdown_async(self) -> None:
         """Cleanup resources like persistent executors."""
@@ -156,6 +150,4 @@ class AgentRunner:
             await self._shutdown_async()
         except Exception:
             # Suppress any secondary errors during shutdown to not hide the original
-            logger.debug(
-                "Suppressed error during shutdown after exception", exc_info=True
-            )
+            logger.debug("Suppressed error during shutdown after exception", exc_info=True)

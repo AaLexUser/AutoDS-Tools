@@ -21,9 +21,7 @@ class PromptStore:
         abs_file_path = (base / relative_path).resolve()
 
         if not abs_file_path.is_relative_to(base):
-            raise ValueError(
-                f"Path {relative_path} is outside of base path {self.base_path}."
-            )
+            raise ValueError(f"Path {relative_path} is outside of base path {self.base_path}.")
         if not abs_file_path.exists():
             raise FileNotFoundError(f"File {abs_file_path} does not exist.")
 

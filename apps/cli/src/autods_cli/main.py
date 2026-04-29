@@ -52,13 +52,9 @@ class AgentCLIOptions(BaseModel):
             click.option("--model", "-m", help="Specific model to use"),
             click.option("--model-base-url", help="Base URL for the model API"),
             click.option("--api-key", "-k", help="API key override"),
-            click.option(
-                "--max-steps", type=int, help="Maximum LangGraph recursion steps"
-            ),
+            click.option("--max-steps", type=int, help="Maximum LangGraph recursion steps"),
             click.option("--config-file", help="Path to configuration file"),
-            click.option(
-                "--trace-debug", is_flag=True, help="Enable debug tracing on the server"
-            ),
+            click.option("--trace-debug", is_flag=True, help="Enable debug tracing on the server"),
             click.option(
                 "--trace-file",
                 type=click.Path(dir_okay=False, path_type=Path),
@@ -152,9 +148,7 @@ def common_options(func):
             "file_path",
             help="Path to file containing the task/input description.",
         ),
-        click.option(
-            "--project-path", "-w", help="Project workspace path for the agent."
-        ),
+        click.option("--project-path", "-w", help="Project workspace path for the agent."),
         click.option(
             "--server-url",
             help="Hosted API base URL. Defaults to AUTODS_SERVER_URL or local auto-start.",
@@ -238,9 +232,7 @@ def is_server_healthy(server_url: str, principal_token: str) -> bool:
         return False
 
 
-def wait_for_server(
-    server_url: str, principal_token: str, timeout_s: float = 10.0
-) -> None:
+def wait_for_server(server_url: str, principal_token: str, timeout_s: float = 10.0) -> None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if is_server_healthy(server_url, principal_token):
@@ -300,10 +292,7 @@ class HostedApiClient:
         response = self._client.request(method, path, **kwargs)
         if response.is_success:
             return response
-        detail = (
-            response.text.strip()
-            or f"Request failed with status {response.status_code}"
-        )
+        detail = response.text.strip() or f"Request failed with status {response.status_code}"
         raise click.ClickException(detail)
 
     def create_session(self) -> RemoteSession:
@@ -416,9 +405,7 @@ def _prompt_for_session_selection(sessions: list[RemoteSession]) -> RemoteSessio
     max_display = min(len(sessions), 10)
     display_sessions = sessions[:max_display]
     _print_sessions_table(display_sessions)
-    choice = Prompt.ask(
-        "Select session", choices=[str(i) for i in range(1, max_display + 1)]
-    )
+    choice = Prompt.ask("Select session", choices=[str(i) for i in range(1, max_display + 1)])
     return display_sessions[int(choice) - 1]
 
 
@@ -593,11 +580,7 @@ def resume(
     if runtime.started_local:
         console.print(f"[dim]Started local AutoDS server at {runtime.server_url}[/dim]")
     sessions = runtime.client.list_sessions()
-    selected = (
-        runtime.client.get_session(session_id)
-        if session_id
-        else _prompt_for_session_selection(sessions)
-    )
+    selected = runtime.client.get_session(session_id) if session_id else _prompt_for_session_selection(sessions)
 
     transcript = runtime.client.get_transcript(selected.id)
     if transcript.messages:
@@ -651,28 +634,20 @@ def _run_server_command(
 @AgentCLIOptions.agent_options
 @cli.command(name="server")
 @click.option("--api-host", default=DEFAULT_LOCAL_HOST, help="API server host")
-@click.option(
-    "--api-port", default=DEFAULT_LOCAL_PORT, type=int, help="API server port"
-)
+@click.option("--api-port", default=DEFAULT_LOCAL_PORT, type=int, help="API server port")
 @click.option("--background", is_flag=True, help="Run API server in background")
 def server(api_host: str, api_port: int, background: bool, **kwargs: Any) -> None:
     """Start the hosted AutoDS API server explicitly."""
-    _run_server_command(
-        api_host, api_port, background, AgentCLIOptions.from_args(kwargs)
-    )
+    _run_server_command(api_host, api_port, background, AgentCLIOptions.from_args(kwargs))
 
 
 @AgentCLIOptions.agent_options
 @cli.command(name="web", hidden=True)
 @click.option("--api-host", default=DEFAULT_LOCAL_HOST, help="API server host")
-@click.option(
-    "--api-port", default=DEFAULT_LOCAL_PORT, type=int, help="API server port"
-)
+@click.option("--api-port", default=DEFAULT_LOCAL_PORT, type=int, help="API server port")
 @click.option("--background", is_flag=True, help="Run API server in background")
 def web(api_host: str, api_port: int, background: bool, **kwargs: Any) -> None:
-    _run_server_command(
-        api_host, api_port, background, AgentCLIOptions.from_args(kwargs)
-    )
+    _run_server_command(api_host, api_port, background, AgentCLIOptions.from_args(kwargs))
 
 
 def main() -> None:

@@ -22,6 +22,7 @@ class CodeBlock:
     lang: Lang
     code: str
 
+
 def _collect_human_text(msg: HumanMessage) -> str:
     """Extract a text representation from a HumanMessage (handles LC content lists)."""
     content = getattr(msg, "content", "")
@@ -29,9 +30,7 @@ def _collect_human_text(msg: HumanMessage) -> str:
         return content
     # content may be a list of {type: "text"|"image_url", ...}
     parts = [
-        str(item.get("text", ""))
-        for item in (content or [])
-        if isinstance(item, dict) and item.get("type") == "text"
+        str(item.get("text", "")) for item in (content or []) if isinstance(item, dict) and item.get("type") == "text"
     ]
     return "\n".join(p for p in parts if p)
 
@@ -43,9 +42,7 @@ def _get_base_cwd() -> Path:
     return Path(getattr(context, "project_path", Path.cwd())) if context else Path.cwd()
 
 
-async def _execute_python_block(
-    blk: CodeBlock, base_cwd: Path, timeout: float | None = None
-) -> str:
+async def _execute_python_block(blk: CodeBlock, base_cwd: Path, timeout: float | None = None) -> str:
     """Execute a Python code block (file operation or IPython execution)."""
 
     # Normal IPython execution
@@ -56,9 +53,7 @@ async def _execute_python_block(
     return f"{header}\n{text}".rstrip()
 
 
-async def _execute_bash_block(
-    blk: CodeBlock, timeout: float | None = None
-) -> tuple[str, int]:
+async def _execute_bash_block(blk: CodeBlock, timeout: float | None = None) -> tuple[str, int]:
     """Execute a bash code block and return (output, exit_code)."""
     code = (blk.code or "").strip()
     if not code:
@@ -83,9 +78,7 @@ async def _execute_bash_block(
         return f"{header}\n{raw_str}", 1
 
 
-async def run_block(
-    blk: CodeBlock, timeout: float | None = None
-) -> tuple[str, int]:
+async def run_block(blk: CodeBlock, timeout: float | None = None) -> tuple[str, int]:
     """Execute block"""
 
     base_cwd = _get_base_cwd()
@@ -105,7 +98,7 @@ class CodeBlocksTool(BaseTool):
     name: str = "CodeBlock"
     usage: str = '<CodeBlock lang="python">print("Hello, World!")</CodeBlock>'
     timeout: float | None = None
-        
+
     def get_prompt(self) -> str:
         return prompt_store.load("tools/codeblocks.md")
 

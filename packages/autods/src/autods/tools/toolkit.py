@@ -18,8 +18,7 @@ class Toolkit:
         if not tool:
             available_tools_str = " ".join([f"<{tool.name}/>" for tool in self.tools])
             return HumanMessage(
-                content=f"Unknown tool(s): {call.name}\n\n"
-                f"Available tools:\n{available_tools_str}",
+                content=f"Unknown tool(s): {call.name}\n\nAvailable tools:\n{available_tools_str}",
                 role="tool",
             )
         try:

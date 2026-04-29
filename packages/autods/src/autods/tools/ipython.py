@@ -21,9 +21,7 @@ async def _observation_to_content(observation: Observation) -> list[str | dict]:
         content.append({"type": "image_url", "image_url": {"url": image}})
 
     if not content:
-        content.append(
-            {"type": "text", "text": "Notebook cell executed with no output."}
-        )
+        content.append({"type": "text", "text": "Notebook cell executed with no output."})
     return content
 
 
@@ -32,15 +30,11 @@ def _get_context() -> Any:
     runtime = get_runtime()
     context = getattr(runtime, "context", None)
     if context is None:
-        raise ToolError(
-            "Jupyter tool requires an agent context with workspace information."
-        )
+        raise ToolError("Jupyter tool requires an agent context with workspace information.")
     return context
 
 
-def _build_executor(
-    project_path: Path, env_vars: dict[str, str] | None
-) -> JupyterExecutor:
+def _build_executor(project_path: Path, env_vars: dict[str, str] | None) -> JupyterExecutor:
     return JupyterExecutor(workspace=project_path, env_vars=env_vars)
 
 
@@ -72,9 +66,7 @@ class IPythonTool(BaseTool):
     async def execute(self, **kwargs) -> HumanMessage:
         code = kwargs.get("arg")
         if not isinstance(code, str) or not code.strip():
-            raise ToolError(
-                "Parameter 'code' is required and must be a non-empty string."
-            )
+            raise ToolError("Parameter 'code' is required and must be a non-empty string.")
 
         context = _get_context()
         executor = _get_executor(context)

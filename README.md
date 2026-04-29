@@ -26,10 +26,11 @@ AutoDS-Tools/
 │   ├── frontend/     # Next.js UI
 │   └── server/       # FastAPI backend
 ├── packages/
-│   └── autods/       # core agent library
+│   ├── autods/       # core agent library
+│   └── pygrad/       # publishable GRAD package
 ├── docker/           # local compose assets
 ├── pyproject.toml    # uv workspace root
-└── Makefile
+└── justfile
 ```
 
 ## Architecture
@@ -57,7 +58,7 @@ The main workflow:
 ### Python workspace
 
 ```bash
-make install
+just install
 ```
 
 That runs `uv sync --all-packages` and installs all Python workspace members into the shared workspace environment.
@@ -122,7 +123,7 @@ The API listens on `http://localhost:8000` by default.
 ### Frontend
 
 ```bash
-make frontend-dev
+just frontend-dev
 ```
 
 The UI runs on `http://localhost:3000`.
@@ -164,7 +165,7 @@ uv run autods exec --server-url http://my-host:8000 "Analyze this dataset"
 
 GRAD is the documentation and graph-retrieval layer used by the agent when it needs to understand external libraries.
 
-For more information, visit https://github.com/AaLexUser/pygrad.
+Package sources and docs live under `packages/pygrad`.
 
 ## License
 

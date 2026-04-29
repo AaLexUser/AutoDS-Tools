@@ -60,9 +60,7 @@ class MessageStreamPrinter:
 
         label = MessageStreamPrinter._label_for(message)
         is_chunk = isinstance(message, BaseMessageChunk)
-        finish_reason = (getattr(message, "response_metadata", {}) or {}).get(
-            "finish_reason"
-        )
+        finish_reason = (getattr(message, "response_metadata", {}) or {}).get("finish_reason")
         is_final_chunk = finish_reason == "STOP"
         return label, text, is_chunk, is_final_chunk
 
@@ -93,14 +91,10 @@ class MessageStreamPrinter:
             self.active_label = None
         self._pending_skip_label = None
 
-    def _handle_chunk(
-        self, label: str | None, text: str, is_final_chunk: bool, message: Any
-    ) -> None:
+    def _handle_chunk(self, label: str | None, text: str, is_final_chunk: bool, message: Any) -> None:
         message_id = message.id if hasattr(message, "id") else None
 
-        if label != self.active_label or (
-            message_id and message_id != self._current_streaming_message_id
-        ):
+        if label != self.active_label or (message_id and message_id != self._current_streaming_message_id):
             if self._current_streaming_message_id:
                 self._displayed_message_ids.add(self._current_streaming_message_id)
 
@@ -137,9 +131,7 @@ class MessageStreamPrinter:
         if hasattr(message, "id") and message.id:
             self._displayed_message_ids.add(message.id)
 
-        self.console.print(
-            MessageStreamPrinter._format_line(label, text), soft_wrap=True
-        )
+        self.console.print(MessageStreamPrinter._format_line(label, text), soft_wrap=True)
 
     async def print_chunk_callback(self, mode: str, chunk: Any):
         if mode != "messages":

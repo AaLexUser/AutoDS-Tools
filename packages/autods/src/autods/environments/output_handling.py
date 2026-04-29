@@ -19,9 +19,7 @@ class OutputTruncator:
     """Handles output truncation logic for different types of content."""
 
     @classmethod
-    def truncate(
-        cls, text: str, keep_len: int, save_path: Optional[Path] = None
-    ) -> str:
+    def truncate(cls, text: str, keep_len: int, save_path: Optional[Path] = None) -> str:
         """Return head+tail of text if it exceeds keep_len characters.
 
         Args:
@@ -107,9 +105,7 @@ class OutputParser:
         return is_success, combined, images
 
     @staticmethod
-    def _parse_single_output(
-        output: Dict[str, Any], images: List[str], executor
-    ) -> str:
+    def _parse_single_output(output: Dict[str, Any], images: List[str], executor) -> str:
         """Parse a single output based on its type."""
         output_type = output["output_type"]
 
@@ -125,9 +121,7 @@ class OutputParser:
         return ""
 
     @staticmethod
-    def _handle_display_data(
-        output: Dict[str, Any], images: List[str], executor
-    ) -> str:
+    def _handle_display_data(output: Dict[str, Any], images: List[str], executor) -> str:
         """Handle display_data output type."""
         if "image/png" in output["data"]:
             executor.display_image(output["data"]["image/png"], executor.interaction)
@@ -149,10 +143,6 @@ class OutputParser:
         """Remove log and warning lines from the output string."""
         delete_lines = ["[warning]", "warning:", "[cv]", "[info]"]
         result = "\n".join(
-            [
-                line
-                for line in input_str.split("\n")
-                if not any(dl in line.lower() for dl in delete_lines)
-            ]
+            [line for line in input_str.split("\n") if not any(dl in line.lower() for dl in delete_lines)]
         ).strip()
         return result

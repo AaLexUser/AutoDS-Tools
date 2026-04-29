@@ -122,22 +122,13 @@ class AutoDSAgent(BaseAgent):
         return Toolkit(*tools)
 
     def check_file_exists_and_not_empty(self, path: Path) -> bool:
-        return (
-            path.exists()
-            and path.is_file()
-            and path.stat().st_size > 0
-            and path.read_text().strip() != ""
-        )
+        return path.exists() and path.is_file() and path.stat().st_size > 0 and path.read_text().strip() != ""
 
-    def runnable(
-        self, checkpointer: BaseCheckpointSaver[Any] | None = None
-    ) -> CompiledStateGraph:
+    def runnable(self, checkpointer: BaseCheckpointSaver[Any] | None = None) -> CompiledStateGraph:
         workflow = StateGraph(AutoDSState, context_schema=AutoDSContext)
 
         think_node = Think(
-            prompt_generation=AutoDSPromptGenerator(
-                self.context.project_path, tools=self.context.toolkit.tools
-            )
+            prompt_generation=AutoDSPromptGenerator(self.context.project_path, tools=self.context.toolkit.tools)
         ).runnable
         act_node = Act().runnable
 
@@ -173,15 +164,11 @@ class AutoDSAgent(BaseAgent):
                 workflow.set_entry_point("analyst_think")
                 workflow.add_node("analyst_think", analyst_think)
                 workflow.add_node("analyst_act", analyst_act)
-                workflow.add_node(
-                    "analyst_save_report", OneShotAnalystSaveReport().runnable
-                )
+                workflow.add_node("analyst_save_report", OneShotAnalystSaveReport().runnable)
                 workflow.add_edge("analyst_save_report", next_node)
 
         if self.agent_config.researcher_steps:
-            researcher_report_path = (
-                Path(self.context.project_path) / RESEARCHER_REPORT_PATH
-            )
+            researcher_report_path = Path(self.context.project_path) / RESEARCHER_REPORT_PATH
             if self.agent_config.analyst_steps == 0:
                 workflow.set_entry_point("researcher_think")
             if self.check_file_exists_and_not_empty(researcher_report_path):
@@ -189,9 +176,7 @@ class AutoDSAgent(BaseAgent):
                 workflow.add_node("researcher_think", researcher_report_load_node)
                 workflow.add_edge("researcher_think", "planner_think")
             else:
-                next_node = (
-                    "planner_think" if self.agent_config.planner_steps else "think"
-                )
+                next_node = "planner_think" if self.agent_config.planner_steps else "think"
                 researcher_toolkit = self.create_researcher_toolkit()
                 researcher_think, researcher_act = create_think_act_agent(
                     prompt_generator=ResearcherPromptGenerator(
@@ -211,9 +196,7 @@ class AutoDSAgent(BaseAgent):
                     workflow.set_entry_point("researcher_think")
                 workflow.add_node("researcher_think", researcher_think)
                 workflow.add_node("researcher_act", researcher_act)
-                workflow.add_node(
-                    "researcher_save_report", ResearcherSaveReport().runnable
-                )
+                workflow.add_node("researcher_save_report", ResearcherSaveReport().runnable)
                 workflow.add_edge("researcher_save_report", next_node)
         if self.agent_config.planner_steps:
             one_shot_planner_node = OneShotPlanner().runnable
@@ -270,9 +253,7 @@ class AutoDSAgent(BaseAgent):
     class _AutoDSToolInput(BaseModel):
         task: str = Field(..., description="Task for AutoDS agent")
 
-    def as_tool(
-        self, checkpointer: BaseCheckpointSaver[Any] | None = None
-    ) -> StructuredTool:
+    def as_tool(self, checkpointer: BaseCheckpointSaver[Any] | None = None) -> StructuredTool:
         async def runnable_tool(task: str, config: RunnableConfig | None = None) -> str:
             writer = get_stream_writer()
             final_text = ""

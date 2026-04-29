@@ -43,12 +43,9 @@ class AuthSettings:
             workos_client_id=os.environ.get("WORKOS_CLIENT_ID"),
             workos_api_key=os.environ.get("WORKOS_API_KEY"),
             workos_redirect_uri=os.environ.get("WORKOS_REDIRECT_URI"),
-            cookie_password=_normalize_cookie_password(
-                os.environ.get("WORKOS_COOKIE_PASSWORD") or auth_secret
-            ),
+            cookie_password=_normalize_cookie_password(os.environ.get("WORKOS_COOKIE_PASSWORD") or auth_secret),
             bootstrap_admin_emails=frozenset(bootstrap),
-            auth_cookie_secure=os.environ.get("AUTH_COOKIE_SECURE", "false").lower()
-            == "true",
+            auth_cookie_secure=os.environ.get("AUTH_COOKIE_SECURE", "false").lower() == "true",
             cli_token_secret=os.environ.get("CLI_TOKEN_SECRET") or auth_secret,
         )
 
@@ -134,9 +131,7 @@ class WorkOSAuthManager:
             access_token=auth_response.access_token,
             refresh_token=auth_response.refresh_token,
             user=user_payload,
-            impersonator=_serialize_workos_value(
-                getattr(auth_response, "impersonator", None)
-            ),
+            impersonator=_serialize_workos_value(getattr(auth_response, "impersonator", None)),
             cookie_password=cookie_password,
         )
         identity = self._identity_from_user(user_obj)
@@ -176,9 +171,7 @@ class WorkOSAuthManager:
     def resolve_browser_user(self, request: Request) -> AuthUser | None:
         if not self.settings.enabled:
             return None
-        return self.authenticate_browser_user(
-            request.cookies.get(WORKOS_SESSION_COOKIE_NAME)
-        )
+        return self.authenticate_browser_user(request.cookies.get(WORKOS_SESSION_COOKIE_NAME))
 
     def resolve_cli_user(self, bearer_token: str | None) -> AuthUser | None:
         if not self.settings.enabled or not bearer_token or not self.settings.cli_token_secret:
