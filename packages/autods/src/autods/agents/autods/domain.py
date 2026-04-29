@@ -8,7 +8,6 @@ from autods.agents.domain import BaseAgentState, BaseThinkActAgent
 from autods.environments.jupyter import JupyterExecutor
 from autods.environments.sandbox import LocalSandboxAdapter
 from autods.tools.toolkit import Toolkit
-from autods.utils.config import Config
 from autods.utils.llm_client import LLMClient
 
 
@@ -26,7 +25,7 @@ class AutoDSContext(BaseThinkActAgent):
 
     llm_client: LLMClient
     toolkit: Toolkit
-    config: Config
+    debugger_enabled: bool = Field(default=True)
     project_path: str = Field(default_factory=os.getcwd)
     jupyter_executor: Optional[JupyterExecutor] = Field(default=None)
     sandbox: Optional[LocalSandboxAdapter] = Field(default=None)

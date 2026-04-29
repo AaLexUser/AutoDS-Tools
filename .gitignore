@@ -242,5 +242,3 @@ mle-bench
 autods_v/*
 
 .npm-cache/
-
-.agents/

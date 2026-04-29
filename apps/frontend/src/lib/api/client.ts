@@ -1,3 +1,5 @@
+import { getApiBaseUrl } from './base-url'
+
 export interface Session {
   id: string
   created_at: string
@@ -62,24 +64,12 @@ interface ArtifactResponse {
   hash: string
 }
 
-function getBaseUrl() {
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL
-  }
-
-  if (typeof window !== 'undefined') {
-    return `${window.location.protocol}//${window.location.hostname}:8000`
-  }
-
-  return 'http://localhost:8000'
-}
-
 let bootstrapPromise: Promise<void> | null = null
 
 async function ensureBrowserBootstrap() {
   if (typeof window === 'undefined') return
   if (!bootstrapPromise) {
-    bootstrapPromise = fetch(`${getBaseUrl()}/api/auth/me`, {
+    bootstrapPromise = fetch(`${getApiBaseUrl()}/api/auth/me`, {
       credentials: 'include',
     }).then(async (response) => {
       if (!response.ok) {
@@ -87,7 +77,7 @@ async function ensureBrowserBootstrap() {
       }
       const authState = await response.json() as AuthState
       if (authState.mode === 'disabled') {
-        const bootstrapResponse = await fetch(`${getBaseUrl()}/api/bootstrap`, {
+        const bootstrapResponse = await fetch(`${getApiBaseUrl()}/api/bootstrap`, {
           method: 'POST',
           credentials: 'include',
         })
@@ -107,7 +97,7 @@ async function ensureBrowserBootstrap() {
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   await ensureBrowserBootstrap()
 
-  const response = await fetch(`${getBaseUrl()}${input}`, {
+  const response = await fetch(`${getApiBaseUrl()}${input}`, {
     ...init,
     credentials: 'include',
     headers: {
@@ -137,7 +127,7 @@ function sortSessions(sessions: Session[]) {
 
 export const apiClient = {
   async getAuthState() {
-    const response = await fetch(`${getBaseUrl()}/api/auth/me`, {
+    const response = await fetch(`${getApiBaseUrl()}/api/auth/me`, {
       credentials: 'include',
     })
     if (!response.ok) {
@@ -233,7 +223,7 @@ export const apiClient = {
 
     await ensureBrowserBootstrap()
 
-    const response = await fetch(`${getBaseUrl()}/api/sessions/${sessionId}/dataset`, {
+    const response = await fetch(`${getApiBaseUrl()}/api/sessions/${sessionId}/dataset`, {
       method: 'POST',
       credentials: 'include',
       body: formData,
@@ -270,7 +260,7 @@ export const apiClient = {
     await ensureBrowserBootstrap()
 
     const response = await fetch(
-      `${getBaseUrl()}/api/sessions/${sessionId}/file?file_path=${encodeURIComponent(filePath)}`,
+      `${getApiBaseUrl()}/api/sessions/${sessionId}/file?file_path=${encodeURIComponent(filePath)}`,
       {
         credentials: 'include',
       }
@@ -306,11 +296,11 @@ export const apiClient = {
   },
 
   getArchiveUrl(sessionId: string) {
-    return `${getBaseUrl()}/api/sessions/${sessionId}/artifacts/archive`
+    return `${getApiBaseUrl()}/api/sessions/${sessionId}/artifacts/archive`
   },
 
   getWebSocketUrl(sessionId: string) {
-    const baseUrl = getBaseUrl()
+    const baseUrl = getApiBaseUrl()
     const url = new URL(baseUrl)
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.pathname = `/api/ws/${sessionId}`

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildChatRenderItems } from './chat-render-items.ts'
-import type { Message } from '../../stores/useSessionStore.ts'
+import { buildChatRenderItems } from './chat-render-items'
+import type { Message } from '../../stores/useSessionStore'
 
 function createMessage(overrides: Partial<Message> & Pick<Message, 'id' | 'role' | 'content'>): Message {
   return {

@@ -7,9 +7,6 @@ AUTO_DS_AGENT = "autods"
 AUTODS_HOME = Path.home() / ".autods"
 AUTODS_PACKAGE = Path(__file__).parent
 
-# CONFIG
-DEFAULT_CONFIG_PATH = AUTODS_HOME / "autods_config.yaml"
-
 # Error Messages
 MULTI_TOOL_ERROR = "Multiple tool calls detected. Only ONE tool call is permitted per turn."
 TOOLS_NOT_FOUND_ERROR = lambda tools: f"Tool calls not found. Be ACTIVE and use the tools. Available tools: {tools}"

@@ -1,5 +1,5 @@
-import type { Message } from '../../stores/useSessionStore.ts'
-import { parseAssistantContent, type ParsedAssistantContent } from './assistant-segments.ts'
+import type { Message } from '../../stores/useSessionStore'
+import { parseAssistantContent, type ParsedAssistantContent } from './assistant-segments'
 
 export interface ChatRenderItem {
   message: Message
@@ -21,7 +21,7 @@ export function buildChatRenderItems(messages: Message[]): ChatRenderItem[] {
     if (
       message.role === 'assistant' &&
       nextMessage?.role === 'environment' &&
-      assistantContent.hasToolSegments
+      assistantContent?.hasToolSegments
     ) {
       items.push({
         message,

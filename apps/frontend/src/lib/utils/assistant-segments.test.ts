@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseAssistantContent, parseAssistantSegments } from './assistant-segments.ts'
+import { parseAssistantContent, parseAssistantSegments } from './assistant-segments'
 
 test('parses CodeBlock tags into assistant-code tool segments', () => {
   const message = [

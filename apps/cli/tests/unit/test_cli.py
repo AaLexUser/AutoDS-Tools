@@ -223,3 +223,15 @@ def test_hosted_client_can_use_authorization_header() -> None:
 
     assert sessions == []
     assert seen_headers == ["Bearer test-token"]
+
+
+def test_exec_help_omits_legacy_config_options() -> None:
+    result = CliRunner().invoke(cli, ["exec", "--help"])
+
+    assert result.exit_code == 0
+    assert "--model" in result.output
+    assert "--model-base-url" in result.output
+    assert "--api-key" in result.output
+    assert "--provider" not in result.output
+    assert "--config-file" not in result.output
+    assert "--max-steps" not in result.output

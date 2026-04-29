@@ -16,7 +16,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Optional, Protocol
 
-import yaml
 from fastapi import (
     FastAPI,
     File,
@@ -53,7 +52,7 @@ from autods.sessions import (
     TranscriptMessage,
     validate_principal_id,
 )
-from autods.utils.config import load_config
+from autods.utils.llm_client import LLMClient
 
 from .auth import (
     WORKOS_SESSION_COOKIE_NAME,
@@ -86,6 +85,14 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     ".py",
     ".ipynb",
 }
+
+
+def build_llm_client(options: dict[str, Any]) -> LLMClient:
+    return LLMClient(
+        model=options.get("model"),
+        api_key=options.get("api_key"),
+        base_url=options.get("model_base_url"),
+    )
 
 
 class BootstrapResponse(BaseModel):
@@ -271,22 +278,14 @@ class HostedAgentRuntime(SessionRuntime):
         service = SessionService(session.principal_id, storage=self.storage)
         workspace = Path(merged_opts.get("project_path") or service.workspace_path(session.id))
         merged_opts["project_path"] = str(workspace.resolve())
-        app_config = load_config(
-            provider=merged_opts.get("provider"),
-            model=merged_opts.get("model"),
-            model_base_url=merged_opts.get("model_base_url"),
-            api_key=merged_opts.get("api_key"),
-            max_steps=merged_opts.get("max_steps"),
-            config_file=merged_opts.get("config_file"),
-        )
         agent = AutoDSAgent(
-            app_config=app_config,
             project_path=merged_opts.get("project_path"),
+            llm_client=build_llm_client(merged_opts),
         )
         return AgentRunner(
             agent=agent,
             project_path=merged_opts.get("project_path"),
-            recursion_limit=merged_opts.get("max_steps") or 200,
+            recursion_limit=200,
             session=session,
         )
 
@@ -1151,26 +1150,6 @@ def create_app(
         except Exception as exc:
             logger.exception("Failed to delete dataset")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    @app.get("/api/config")
-    async def get_config(request: Request):
-        _require_principal(request)
-        from autods.constants import DEFAULT_CONFIG_PATH
-
-        return {"yaml": DEFAULT_CONFIG_PATH.read_text() if DEFAULT_CONFIG_PATH.exists() else ""}
-
-    @app.post("/api/config")
-    async def update_config(request: Request, body: dict[str, str]):
-        _require_principal(request)
-        from autods.constants import DEFAULT_CONFIG_PATH
-
-        try:
-            yaml.safe_load(body.get("yaml", ""))
-            DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            DEFAULT_CONFIG_PATH.write_text(body.get("yaml", ""))
-            return {"message": "Success"}
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.websocket("/api/ws/{session_id}")
     async def websocket_endpoint(websocket: WebSocket, session_id: str):

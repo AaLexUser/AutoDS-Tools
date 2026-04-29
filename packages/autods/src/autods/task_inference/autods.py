@@ -9,7 +9,6 @@ from langgraph.types import Command
 from autods.agents.autods.domain import AutoDSContext, AutoDSState
 from autods.constants import (
     ANALYST_REPORT_PATH,
-    AUTO_DS_AGENT,
     MULTI_TOOL_ERROR,
     PLANNER_REPORT_PATH,
     RESEARCHER_REPORT_PATH,
@@ -128,14 +127,12 @@ class Act(AutoDSTaskInference):
             response = await context.toolkit.execute(call=calls[0])
 
             should_route_to_debugger = False
-            agent_config = context.config.agents.get(AUTO_DS_AGENT)
-            debugger_steps = getattr(agent_config, "debugger_steps", 0) if agent_config else 0
 
             # Check if there's a Python error and debugger is configured
             response_content = response.content if hasattr(response, "content") else str(response)
             if not isinstance(response_content, str):
                 response_content = str(response_content)
-            if debugger_steps > 0 and _is_python_error(response_content):
+            if context.debugger_enabled and _is_python_error(response_content):
                 should_route_to_debugger = True
 
             if calls[0].name == "submit" and not "ERROR" in response.content:

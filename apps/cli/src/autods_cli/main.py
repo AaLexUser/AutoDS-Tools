@@ -35,25 +35,19 @@ AUTHORIZATION_HEADER = "Authorization"
 
 
 class AgentCLIOptions(BaseModel):
-    provider: Optional[str]
     model: Optional[str]
     model_base_url: Optional[str]
     api_key: Optional[str]
-    max_steps: Optional[int]
     project_path: Optional[str]
-    config_file: Optional[str]
     trace_debug: bool = False
     trace_file: Optional[str] = None
 
     @staticmethod
     def agent_options(func):
         options = [
-            click.option("--provider", "-p", help="LLM provider to use"),
             click.option("--model", "-m", help="Specific model to use"),
             click.option("--model-base-url", help="Base URL for the model API"),
             click.option("--api-key", "-k", help="API key override"),
-            click.option("--max-steps", type=int, help="Maximum LangGraph recursion steps"),
-            click.option("--config-file", help="Path to configuration file"),
             click.option("--trace-debug", is_flag=True, help="Enable debug tracing on the server"),
             click.option(
                 "--trace-file",
@@ -75,13 +69,10 @@ class AgentCLIOptions(BaseModel):
             return value
 
         return cls(
-            provider=_normalize(kwargs.get("provider")),
             model=_normalize(kwargs.get("model")),
             model_base_url=_normalize(kwargs.get("model_base_url")),
             api_key=_normalize(kwargs.get("api_key")),
-            max_steps=_normalize(kwargs.get("max_steps")),
             project_path=_normalize(kwargs.get("project_path")),
-            config_file=_normalize(kwargs.get("config_file")),
             trace_debug=bool(kwargs.get("trace_debug", False)),
             trace_file=_normalize(kwargs.get("trace_file")),
         )
@@ -185,12 +176,9 @@ def _handle_task_input(task: Optional[str], file_path: Optional[str]) -> str:
 
 def build_server_options(cli_opts: AgentCLIOptions) -> dict[str, Any]:
     agent_options = {
-        "provider": cli_opts.provider,
         "model": cli_opts.model,
         "model_base_url": cli_opts.model_base_url,
         "api_key": cli_opts.api_key,
-        "max_steps": cli_opts.max_steps,
-        "config_file": cli_opts.config_file,
         "project_path": cli_opts.project_path,
         "trace_debug": cli_opts.trace_debug,
         "trace_file": cli_opts.trace_file,

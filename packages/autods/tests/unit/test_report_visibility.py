@@ -20,7 +20,6 @@ from autods.task_inference.autods import (
     ResearcherSaveReport,
 )
 from autods.tools.toolkit import Toolkit
-from autods.utils.config import Config
 from autods.utils.llm_client import LLMClient
 
 
@@ -29,7 +28,6 @@ def build_context(project_path: Path, llm_client: LLMClient | None = None) -> Au
         project_path=str(project_path),
         llm_client=llm_client or Mock(spec=LLMClient),
         toolkit=Toolkit(),
-        config=Config(),
     )
 
 

@@ -16,6 +16,7 @@ import {
   isImageFile,
 } from '@/hooks/useArtifacts'
 import { apiClient } from '@/lib/api/client'
+import { getApiBaseUrl } from '@/lib/api/base-url'
 
 interface FilePreviewProps {
   sessionId: string
@@ -72,7 +73,7 @@ export function FilePreview({ sessionId, filePath }: FilePreviewProps) {
           {/* Artifact previews can be arbitrary local files, so a plain img is the most reliable option here. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/session/${sessionId}/file?file_path=${encodeURIComponent(filePath)}`}
+            src={`${getApiBaseUrl()}/api/sessions/${sessionId}/file?file_path=${encodeURIComponent(filePath)}`}
             alt={filename}
             className="max-w-full max-h-full object-contain"
           />

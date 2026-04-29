@@ -15,6 +15,7 @@ from langchain_core.messages import AIMessageChunk, HumanMessage
 from starlette.websockets import WebSocketDisconnect
 from workos.session import unseal_data
 
+import autods_web.api as api_module
 from autods.sessions import SessionService, TranscriptMessage
 from autods_web.api import (
     COOKIE_PRINCIPAL_NAME,
@@ -254,6 +255,49 @@ def test_invalid_session_does_not_get_recreated(session_root: Path) -> None:
     assert missing_run.status_code == 404
     assert runtime.started_runs == []
     assert client.get("/api/sessions").json() == []
+
+
+def test_hosted_runtime_builds_runner_without_legacy_config_loader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = SessionStorage(root=tmp_path / "sessions")
+    service = SessionService(principal_id="principal", storage=storage)
+    session = service.create_session()
+    manager = WebSocketManager()
+    runtime = HostedAgentRuntime(
+        storage=storage,
+        manager=manager,
+        agent_options={"project_path": str(tmp_path.resolve())},
+    )
+    captured: dict[str, object] = {}
+    fake_llm_client = object()
+
+    class FakeAgent:
+        def __init__(self, project_path: str, *, llm_client: object) -> None:
+            captured["project_path"] = project_path
+            captured["llm_client"] = llm_client
+
+    class FakeRunner:
+        def __init__(self, agent, project_path, recursion_limit, session) -> None:
+            captured["agent"] = agent
+            captured["runner_project_path"] = project_path
+            captured["recursion_limit"] = recursion_limit
+            captured["session_id"] = session.id
+
+    assert not hasattr(api_module, "load_config")
+    monkeypatch.setattr(api_module, "AutoDSAgent", FakeAgent)
+    monkeypatch.setattr(api_module, "AgentRunner", FakeRunner)
+    monkeypatch.setattr(api_module, "build_llm_client", lambda _options: fake_llm_client)
+
+    runner = runtime._build_runner(session)
+
+    assert runner is not None
+    assert captured["project_path"] == str(tmp_path.resolve())
+    assert captured["llm_client"] is fake_llm_client
+    assert captured["runner_project_path"] == str(tmp_path.resolve())
+    assert captured["recursion_limit"] == 200
+    assert captured["session_id"] == session.id
 
 
 def test_invalid_principal_id_is_rejected_before_creating_session_paths(

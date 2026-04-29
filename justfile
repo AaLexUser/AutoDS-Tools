@@ -2,6 +2,8 @@ python-src := "packages/autods/src apps/server/src apps/cli/src packages/pygrad/
 python-tests := "packages/autods/tests apps/server/tests apps/cli/tests packages/pygrad/tests"
 frontend-dir := "apps/frontend"
 cognee-compose-file := "docker/docker-compose-cognee.yml"
+docker-compose-file := "docker/docker-compose.yml"
+docker-env-file := "docker/.env"
 
 # Run ruff linter
 lint:
@@ -105,3 +107,19 @@ cognee-up:
 # Stop Cognee services
 cognee-down:
     docker compose -f {{cognee-compose-file}} down
+
+# Validate the VPS deployment compose file
+docker-config:
+    docker compose --env-file {{docker-env-file}} -f {{docker-compose-file}} config
+
+# Build and start the VPS deployment stack
+docker-up *FLAGS:
+    docker compose --env-file {{docker-env-file}} -f {{docker-compose-file}} up -d --build {{FLAGS}}
+
+# Stop the VPS deployment stack
+docker-down:
+    docker compose --env-file {{docker-env-file}} -f {{docker-compose-file}} down
+
+# Tail logs for the VPS deployment stack
+docker-logs *FLAGS:
+    docker compose --env-file {{docker-env-file}} -f {{docker-compose-file}} logs -f {{FLAGS}}

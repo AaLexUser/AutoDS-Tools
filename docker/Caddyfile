@@ -1,0 +1,9 @@
+{$PUBLIC_HOST} {
+	encode gzip zstd
+
+	@backend path /api/* /health
+	reverse_proxy @backend autods-server:8000
+
+	reverse_proxy autods-frontend:3000
+}
+

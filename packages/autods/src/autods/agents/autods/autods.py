@@ -43,25 +43,27 @@ from autods.tools.codeblocks import CodeBlocksTool
 from autods.tools.libq import LibQTool
 from autods.tools.submit import SubmitTool
 from autods.tools.toolkit import Toolkit
-from autods.utils.config import AutoDSAgentConfig, Config
 from autods.utils.llm_client import LLMClient
+
+DEFAULT_RECURSION_STEPS = 50
+ANALYST_STEPS = 5
+RESEARCHER_STEPS = 5
+PLANNER_STEPS = 5
+DEBUGGER_STEPS = 5
+PRESENTER_STEPS = 5
 
 
 class AutoDSAgent(BaseAgent):
     def __init__(
         self,
-        app_config: Config,
         project_path: Optional[str] = None,
+        *,
+        llm_client: LLMClient | None = None,
     ):
-        super().__init__(app_config)
+        super().__init__()
         start_time = time.perf_counter()
-        agent_config = app_config.agents.get(AUTO_DS_AGENT)
-        if agent_config is None:
-            raise ValueError("AutoDS agent configuration is missing")
-        self.agent_config: AutoDSAgentConfig = cast(AutoDSAgentConfig, agent_config)
-
-        self.llm = LLMClient(self.agent_config.model)
-        self.max_steps = self.agent_config.max_steps or 50
+        self.llm = llm_client or LLMClient()
+        self.max_steps = DEFAULT_RECURSION_STEPS
 
         resolved_path = Path(project_path or os.getcwd())
         venv_env = resolve_venv_env(resolved_path)
@@ -73,7 +75,7 @@ class AutoDSAgent(BaseAgent):
         self.context = AutoDSContext(
             llm_client=self.llm,
             toolkit=self.toolkit,
-            config=app_config,
+            debugger_enabled=DEBUGGER_STEPS > 0,
             sandbox=self.sandbox,
             python_env=venv_env,
             project_path=str(resolved_path),
@@ -132,7 +134,7 @@ class AutoDSAgent(BaseAgent):
         ).runnable
         act_node = Act().runnable
 
-        if self.agent_config.analyst_steps:
+        if ANALYST_STEPS:
             analyst_report_path = Path(self.context.project_path) / ANALYST_REPORT_PATH
             if self.check_file_exists_and_not_empty(analyst_report_path):
                 one_shot_analyst_node = OneShotAnalyst(analyst_report_path).runnable
@@ -140,9 +142,9 @@ class AutoDSAgent(BaseAgent):
                 workflow.add_node("analyst_think", one_shot_analyst_node)
                 workflow.add_edge("analyst_think", "researcher_think")
             else:
-                if self.agent_config.researcher_steps:
+                if RESEARCHER_STEPS:
                     next_node = "researcher_think"
-                elif self.agent_config.planner_steps:
+                elif PLANNER_STEPS:
                     next_node = "planner_think"
                 else:
                     next_node = "think"
@@ -151,11 +153,11 @@ class AutoDSAgent(BaseAgent):
                     prompt_generator=AnalystPromptGenerator(
                         project_path=self.context.project_path,
                         tools=analyst_toolkit.tools,
-                        steps_limit=self.agent_config.analyst_steps,
+                        steps_limit=ANALYST_STEPS,
                     ),
                     toolkit=analyst_toolkit,
                     throw_history=True,
-                    max_steps=self.agent_config.analyst_steps,
+                    max_steps=ANALYST_STEPS,
                     context_type=AutoDSContext,
                     state_type=AutoDSState,
                     prefix="analyst_",
@@ -167,55 +169,55 @@ class AutoDSAgent(BaseAgent):
                 workflow.add_node("analyst_save_report", OneShotAnalystSaveReport().runnable)
                 workflow.add_edge("analyst_save_report", next_node)
 
-        if self.agent_config.researcher_steps:
+        if RESEARCHER_STEPS:
             researcher_report_path = Path(self.context.project_path) / RESEARCHER_REPORT_PATH
-            if self.agent_config.analyst_steps == 0:
+            if ANALYST_STEPS == 0:
                 workflow.set_entry_point("researcher_think")
             if self.check_file_exists_and_not_empty(researcher_report_path):
                 researcher_report_load_node = ResearcherReportLoad().runnable
                 workflow.add_node("researcher_think", researcher_report_load_node)
                 workflow.add_edge("researcher_think", "planner_think")
             else:
-                next_node = "planner_think" if self.agent_config.planner_steps else "think"
+                next_node = "planner_think" if PLANNER_STEPS else "think"
                 researcher_toolkit = self.create_researcher_toolkit()
                 researcher_think, researcher_act = create_think_act_agent(
                     prompt_generator=ResearcherPromptGenerator(
                         project_path=self.context.project_path,
                         tools=researcher_toolkit.tools,
-                        steps_limit=self.agent_config.researcher_steps,
+                        steps_limit=RESEARCHER_STEPS,
                     ),
                     toolkit=researcher_toolkit,
                     throw_history=True,
-                    max_steps=self.agent_config.researcher_steps,
+                    max_steps=RESEARCHER_STEPS,
                     context_type=AutoDSContext,
                     state_type=AutoDSState,
                     prefix="researcher_",
                     next_node="researcher_save_report",
                 )
-                if not self.agent_config.analyst_steps:
+                if not ANALYST_STEPS:
                     workflow.set_entry_point("researcher_think")
                 workflow.add_node("researcher_think", researcher_think)
                 workflow.add_node("researcher_act", researcher_act)
                 workflow.add_node("researcher_save_report", ResearcherSaveReport().runnable)
                 workflow.add_edge("researcher_save_report", next_node)
-        if self.agent_config.planner_steps:
+        if PLANNER_STEPS:
             one_shot_planner_node = OneShotPlanner().runnable
             workflow.add_node("planner_think", one_shot_planner_node)
             workflow.add_edge("planner_think", "think")
         else:
             workflow.set_entry_point("think")
 
-        if self.agent_config.debugger_steps:
+        if DEBUGGER_STEPS:
             debugger_toolkit = self.create_debugger_toolkit()
             debugger_think, debugger_act = create_think_act_agent(
                 prompt_generator=DebuggerPromptGenerator(
                     project_path=self.context.project_path,
                     tools=debugger_toolkit.tools,
-                    steps_limit=self.agent_config.debugger_steps,
+                    steps_limit=DEBUGGER_STEPS,
                 ),
                 toolkit=debugger_toolkit,
                 throw_history=True,
-                max_steps=self.agent_config.debugger_steps,
+                max_steps=DEBUGGER_STEPS,
                 context_type=AutoDSContext,
                 state_type=AutoDSState,
                 last_messages_cnt=2,
@@ -228,17 +230,17 @@ class AutoDSAgent(BaseAgent):
         workflow.add_node("think", think_node)
         workflow.add_node("act", act_node)
 
-        if self.agent_config.presenter_steps:
+        if PRESENTER_STEPS:
             presenter_toolkit = self.create_presenter_toolkit()
             presenter_think, presenter_act = create_think_act_agent(
                 prompt_generator=PresenterPromptGenerator(
                     project_path=self.context.project_path,
                     tools=presenter_toolkit.tools,
-                    steps_limit=self.agent_config.presenter_steps,
+                    steps_limit=PRESENTER_STEPS,
                 ),
                 toolkit=presenter_toolkit,
                 throw_history=True,
-                max_steps=self.agent_config.debugger_steps,
+                max_steps=PRESENTER_STEPS,
                 context_type=AutoDSContext,
                 state_type=AutoDSState,
                 last_messages_cnt=2,

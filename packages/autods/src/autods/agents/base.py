@@ -6,12 +6,9 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from autods.utils.config import Config
-
 
 class BaseAgent(ABC):
-    def __init__(self, config: Config):
-        self.config = config
+    def __init__(self):
         self._compiled: CompiledStateGraph | None = None
 
     def _compile_workflow(
