@@ -129,7 +129,7 @@ print(f"Repository storage: {REPO_STORAGE}")
 ```
 ~/.pygrad/
 ├── repos/           # Cloned repositories
-│   ├── owner_repo1/
-│   └── owner_repo2/
+│   ├── owner-repo1/
+│   └── owner-repo2/
 └── ...
 ```

@@ -222,10 +222,9 @@ class MultiIndexRetriever:
         for result in all_results[:top_k]:
             content = result.content if hasattr(result, "content") else str(result)
 
-            # Simple deduplication based on content hash
-            content_hash = hash(content[:100])  # Hash first 100 chars
-            if content_hash not in seen:
-                seen.add(content_hash)
+            # Deduplicate using the full rendered content to avoid false collisions.
+            if content not in seen:
+                seen.add(content)
                 formatted.append(content)
 
         return formatted[:top_k]
