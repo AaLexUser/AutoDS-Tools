@@ -21,8 +21,7 @@ class TestGetRepositoryId:
     def test_github_url_with_git_extension(self):
         """Test parsing URL with .git extension."""
         url = "https://github.com/owner/repo.git"
-        # The .git is part of the repo name
-        assert get_repository_id(url) == "owner-repo.git"
+        assert get_repository_id(url) == "owner-repo"
 
     def test_github_url_uppercase_normalized(self):
         """Test that URLs are normalized to lowercase."""

@@ -22,6 +22,7 @@ def get_repository_id(url: str) -> str:
     if len(path_parts) < 2:
         raise RuntimeError(f"Invalid GitHub URL format. Expected: https://github.com/owner/repo. Got: {url}")
     owner, repo_name = path_parts[-2:]
+    repo_name = repo_name.removesuffix(".git")
     return f"{owner.lower()}-{repo_name.lower()}"
 
 

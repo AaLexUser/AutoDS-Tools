@@ -9,10 +9,10 @@ from pygrad import clone_repository, get_repository_id
 
 # Get repository identifier from URL
 repo_id = get_repository_id("https://github.com/owner/repo")
-# Returns: "owner_repo"
+# Returns: "owner-repo"
 
 # Clone a repository
-clone_repository("https://github.com/owner/repo", "./repos/owner_repo")
+clone_repository("https://github.com/owner/repo", "./repos/owner-repo")
 ```
 
 ---
@@ -27,7 +27,7 @@ def get_repository_id(url: str) -> str
 
 Extract a unique identifier from a GitHub repository URL.
 
-The identifier is created by combining the owner and repository name with an underscore,
+The identifier is created by combining the owner and repository name with a hyphen,
 making it safe for use as a directory name or dataset identifier.
 
 **Parameters:**
@@ -36,7 +36,7 @@ making it safe for use as a directory name or dataset identifier.
 |------|------|-------------|
 | `url` | `str` | GitHub repository URL |
 
-**Returns:** `str` - Repository identifier in format `owner_repo`
+**Returns:** `str` - Repository identifier in format `owner-repo`
 
 **Example:**
 
@@ -45,15 +45,15 @@ from pygrad import get_repository_id
 
 # Standard GitHub URL
 repo_id = get_repository_id("https://github.com/psf/requests")
-print(repo_id)  # "psf_requests"
+print(repo_id)  # "psf-requests"
 
 # URL with .git suffix
 repo_id = get_repository_id("https://github.com/pallets/flask.git")
-print(repo_id)  # "pallets_flask"
+print(repo_id)  # "pallets-flask"
 
 # URL with trailing slash
 repo_id = get_repository_id("https://github.com/django/django/")
-print(repo_id)  # "django_django"
+print(repo_id)  # "django-django"
 ```
 
 **URL Formats Supported:**

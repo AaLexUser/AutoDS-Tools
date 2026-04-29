@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 WORKDIR /app
 
 COPY pyproject.toml ./
+COPY README.md ./
 COPY src/ src/
 
 RUN pip install --no-cache-dir ".[server]"
