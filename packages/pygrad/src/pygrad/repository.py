@@ -26,6 +26,21 @@ def get_repository_id(url: str) -> str:
     return f"{owner.lower()}-{repo_name.lower()}"
 
 
+def normalize_repository_reference(value: str) -> str:
+    """Normalize either a GitHub URL or an existing repository ID.
+
+    Args:
+        value: GitHub repository URL or normalized repository ID
+
+    Returns:
+        Repository ID in format "owner-repo" (lowercase)
+    """
+    stripped = value.strip()
+    if stripped.startswith(("http://", "https://", "git@")):
+        return get_repository_id(stripped)
+    return stripped.lower().removesuffix(".git")
+
+
 def clone_repository(url: str, path: str | Path) -> None:
     """Clone a Git repository to the specified path.
 

@@ -6,6 +6,7 @@ import time
 from base64 import urlsafe_b64encode
 from hashlib import sha256
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -268,6 +269,47 @@ def test_invalid_principal_id_is_rejected_before_creating_session_paths(
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid principal identity"
     assert not (session_root.parent / "escaped").exists()
+
+
+def test_add_dataset_looks_up_created_dataset_by_repository_id(
+    session_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _ = _create_client(session_root)
+    _bootstrap(client)
+
+    async def fake_add(url: str) -> None:
+        assert url == "https://github.com/owner/repo"
+
+    async def fake_get_dataset(dataset_name: str):
+        assert dataset_name == "owner-repo"
+        return SimpleNamespace(name="owner-repo")
+
+    monkeypatch.setattr("autods_web.api.pg.add", fake_add)
+    monkeypatch.setattr("autods_web.api.pg.get_dataset", fake_get_dataset)
+
+    response = client.post(
+        "/api/datasets",
+        json={"url": "https://github.com/owner/repo"},
+    )
+
+    assert response.status_code == 201
+    assert response.json() == {"id": "owner-repo", "name": "owner-repo"}
+
+
+def test_delete_dataset_passes_repository_id_to_pygrad(session_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _ = _create_client(session_root)
+    _bootstrap(client)
+    calls: list[str] = []
+
+    async def fake_delete(value: str) -> None:
+        calls.append(value)
+
+    monkeypatch.setattr("autods_web.api.pg.delete", fake_delete)
+
+    response = client.delete("/api/datasets/owner-repo")
+
+    assert response.status_code == 204
+    assert calls == ["owner-repo"]
 
 
 def test_run_request_passes_options_to_runtime(session_root: Path) -> None:

@@ -26,7 +26,7 @@ from pygrad.graphrag.embeddings import (
 from pygrad.graphrag.pipeline import PyGradRAGPipeline
 from pygrad.processor.processor import process_repository, process_repository_to_neo4j
 from pygrad.prompt_store import prompt_store
-from pygrad.repository import clone_repository, get_repository_id
+from pygrad.repository import clone_repository, get_repository_id, normalize_repository_reference
 from pygrad.xmlapi import extract_entities
 
 load_dotenv()
@@ -251,9 +251,10 @@ async def get_dataset(dataset_name: str, default: Any = None) -> Any:
         >>> repo_id = get_repository_id("https://github.com/owner/repo")
         >>> dataset = await pg.get_dataset(repo_id)
     """
+    repository_id = normalize_repository_reference(dataset_name)
     datasets = await list_datasets()
     for dataset in datasets:
-        if dataset.name.lower() == dataset_name.lower():
+        if dataset.name.lower() == repository_id:
             return dataset
     return default
 
@@ -264,14 +265,14 @@ async def delete(url: str) -> None:
     This removes the indexed data but does not delete the cached repository files.
 
     Args:
-        url: GitHub repository URL
+        url: GitHub repository URL or normalized repository ID
 
     Example:
         >>> import pygrad as pg
         >>> await pg.delete("https://github.com/owner/repo")
     """
     backend = get_search_backend()
-    repo_id = get_repository_id(url)
+    repo_id = normalize_repository_reference(url)
 
     if backend == SearchBackend.COGNEE:
         cognee, _ = _get_cognee_runtime()

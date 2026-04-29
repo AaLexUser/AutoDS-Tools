@@ -226,6 +226,17 @@ class TestCogneeBackend:
         assert result is dataset
 
     @pytest.mark.asyncio
+    async def test_get_dataset_accepts_full_repository_url(self, monkeypatch):
+        """Dataset lookup also accepts a full repository URL."""
+        dataset = SimpleNamespace(name="example-project", id="dataset-1")
+        monkeypatch.setenv("SEARCH_BACKEND", SearchBackend.COGNEE.value)
+        install_fake_cognee_runtime(monkeypatch, datasets=[dataset])
+
+        result = await core.get_dataset(SAMPLE_URL)
+
+        assert result is dataset
+
+    @pytest.mark.asyncio
     async def test_get_dataset_returns_default_when_missing(self, monkeypatch):
         """Dataset lookup falls back to the provided default."""
         fallback = object()
@@ -245,6 +256,18 @@ class TestCogneeBackend:
         monkeypatch.setenv("SEARCH_BACKEND", SearchBackend.COGNEE.value)
 
         await core.delete(SAMPLE_URL)
+
+        assert records.empty_dataset_calls == ["dataset-123"]
+
+    @pytest.mark.asyncio
+    async def test_delete_accepts_repository_id(self, monkeypatch):
+        """Deleting by repository id empties the matching external dataset."""
+        repo_id = get_repository_id(SAMPLE_URL)
+        dataset = SimpleNamespace(name=repo_id, id="dataset-123")
+        records = install_fake_cognee_runtime(monkeypatch, datasets=[dataset])
+        monkeypatch.setenv("SEARCH_BACKEND", SearchBackend.COGNEE.value)
+
+        await core.delete(repo_id)
 
         assert records.empty_dataset_calls == ["dataset-123"]
 
@@ -321,4 +344,20 @@ class TestNeo4jBackend:
 
         drop_queries = [query for query, _ in session.run_calls[1:]]
         assert drop_queries == [f"DROP INDEX `{repo_id}_{node_type}_embeddings` IF EXISTS" for node_type in NODE_LABELS]
+        assert driver.closed is True
+
+    @pytest.mark.asyncio
+    async def test_delete_accepts_repository_id_for_neo4j(self, monkeypatch):
+        """Deleting by repository id also works for the Neo4j backend."""
+        repo_id = get_repository_id(SAMPLE_URL)
+        results = [FakeRunResult()] * (1 + len(NODE_LABELS))
+        session = FakeSession(results)
+        driver = FakeDriver([session])
+        monkeypatch.setattr(core.GraphDatabase, "driver", lambda uri, auth: driver)
+
+        await core.delete(repo_id)
+
+        delete_query, delete_params = session.run_calls[0]
+        assert "DETACH DELETE n" in delete_query
+        assert delete_params == {"repo_id": repo_id}
         assert driver.closed is True

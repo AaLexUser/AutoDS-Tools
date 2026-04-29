@@ -2,7 +2,7 @@
 
 import pytest
 
-from pygrad.repository import clone_repository, get_repository_id
+from pygrad.repository import clone_repository, get_repository_id, normalize_repository_reference
 
 
 class TestGetRepositoryId:
@@ -57,3 +57,15 @@ class TestCloneRepository:
 
     # Note: We don't test actual successful cloning as it would require network access
     # and would slow down tests. Integration tests should cover that separately.
+
+
+class TestNormalizeRepositoryReference:
+    """Tests for normalize_repository_reference."""
+
+    def test_normalizes_full_github_url(self):
+        """GitHub URLs are converted to repository ids."""
+        assert normalize_repository_reference("https://github.com/Owner/Repo.git") == "owner-repo"
+
+    def test_preserves_existing_repository_id(self):
+        """Repository ids are accepted directly."""
+        assert normalize_repository_reference("Owner-Repo") == "owner-repo"

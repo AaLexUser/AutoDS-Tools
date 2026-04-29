@@ -1136,7 +1136,8 @@ def create_app(
         _require_principal(request)
         try:
             await pg.add(body.url)
-            dataset = await pg.get_dataset(body.url)
+            repo_id = pg.get_repository_id(body.url)
+            dataset = await pg.get_dataset(repo_id)
             return {"id": dataset.name, "name": dataset.name}
         except Exception as exc:
             logger.exception("Failed to add dataset")

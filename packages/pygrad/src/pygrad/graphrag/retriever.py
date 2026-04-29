@@ -219,12 +219,14 @@ class MultiIndexRetriever:
         # Format and deduplicate results
         formatted = []
         seen = set()
-        for result in all_results[:top_k]:
+        for result in all_results:
             content = result.content if hasattr(result, "content") else str(result)
 
             # Deduplicate using the full rendered content to avoid false collisions.
             if content not in seen:
                 seen.add(content)
                 formatted.append(content)
+                if len(formatted) >= top_k:
+                    break
 
         return formatted[:top_k]
