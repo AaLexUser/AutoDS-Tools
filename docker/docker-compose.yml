@@ -9,6 +9,8 @@ services:
         condition: service_healthy
     environment:
       PUBLIC_HOST: ${PUBLIC_HOST:?PUBLIC_HOST is required}
+      BASIC_AUTH_USERNAME: ${BASIC_AUTH_USERNAME:?BASIC_AUTH_USERNAME is required}
+      BASIC_AUTH_PASSWORD_HASH: ${BASIC_AUTH_PASSWORD_HASH:?BASIC_AUTH_PASSWORD_HASH is required}
     ports:
       - "80:80"
       - "443:443"
@@ -125,4 +127,3 @@ volumes:
   neo4j_plugins:
   caddy_data:
   caddy_config:
-

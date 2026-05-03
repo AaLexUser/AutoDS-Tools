@@ -33,6 +33,8 @@ just cognee-down
 The production-style stack expects a real `docker/.env` file. Important values include:
 
 - `PUBLIC_HOST`
+- `BASIC_AUTH_USERNAME`
+- `BASIC_AUTH_PASSWORD_HASH`
 - `NEXT_PUBLIC_API_URL`
 - `AUTODS_MODEL`
 - `AUTODS_API_KEY`
@@ -52,6 +54,19 @@ The production-style stack expects a real `docker/.env` file. Important values i
 - `WORKOS_CLIENT_ID`
 - `WORKOS_API_KEY`
 - `WORKOS_REDIRECT_URI`
+
+The reverse proxy now enforces HTTP basic auth for the entire site, which is the
+safest way to protect this demo deployment because it gates both the frontend and
+the backend API. Generate the password hash with Caddy before you bring the stack
+up:
+
+```bash
+docker run --rm caddy:2.10.2 caddy hash-password --plaintext 'choose-a-strong-demo-password'
+```
+
+Then set `BASIC_AUTH_USERNAME` and `BASIC_AUTH_PASSWORD_HASH` in `docker/.env`.
+If you are using the shared Caddy password gate, keep `AUTH_MODE=disabled` so the
+app does not expect WorkOS.
 
 For AutoDS itself, the model runtime is configured through `AUTODS_MODEL`, `AUTODS_API_KEY`, and `AUTODS_BASE_URL`.
 
