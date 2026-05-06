@@ -76,17 +76,9 @@ class SandboxAdapter(Protocol):
 class LocalSandboxAdapter(SandboxAdapter):
     """Simple sandbox adapter that delegates to the host operating system."""
 
-    def __init__(self) -> None:
-        self._base_env: dict[str, str] = dict(os.environ)
-
-    def update_environment(
-        self,
-        *,
-        sandbox_policy: object | None = None,
-        workspace: Path | None = None,
-        extra_env: Mapping[str, str] | None = None,
-    ) -> None:
-        if extra_env:
+    def __init__(self, extra_env: Mapping[str, str] | None = None) -> None:
+        self._base_env = dict(os.environ)
+        if extra_env is not None:
             self._base_env.update(extra_env)
 
     async def run(

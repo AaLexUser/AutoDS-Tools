@@ -2,7 +2,7 @@ import { create } from 'zustand'
 
 export interface Message {
   id: string
-  role: 'user' | 'assistant' | 'tool' | 'environment'
+  role: 'user' | 'assistant' | 'tool'
   content: string
   timestamp: Date
   isStreaming?: boolean

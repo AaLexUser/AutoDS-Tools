@@ -1,5 +1,3 @@
-import { getBrowserQueryClient } from '@/lib/query-client-bridge'
-
 import { getApiBaseUrl } from './base-url'
 
 export interface Session {
@@ -10,23 +8,9 @@ export interface Session {
   folder_size: number
 }
 
-export interface AuthUser {
-  id: string
-  email: string
-  display_name?: string | null
-  status: 'pending' | 'approved' | 'disabled'
-  is_admin: boolean
-}
-
-export interface AuthState {
-  mode: 'disabled' | 'workos'
-  authenticated: boolean
-  user?: AuthUser | null
-}
-
 export interface TranscriptMessage {
   id: string
-  role: 'user' | 'assistant' | 'environment'
+  role: 'user' | 'assistant' | 'tool'
   content: string
   timestamp: string
   isStreaming?: boolean
@@ -59,13 +43,6 @@ export type InstallLogEvent =
   | { type: 'error'; phase?: string; elapsed_ms?: number; message: string; exit_code?: number | null }
   | { type: 'done'; status: string; installed?: string[]; elapsed_ms?: number; message?: string }
 
-export interface CliTokenRecord {
-  id: string
-  label?: string | null
-  created_at: string
-  last_used_at?: string | null
-}
-
 interface ArtifactResponse {
   root: string
   tree: ArtifactNode[]
@@ -78,21 +55,12 @@ let bootstrapPromise: Promise<void> | null = null
 async function ensureBrowserBootstrap() {
   if (typeof window === 'undefined') return
   if (!bootstrapPromise) {
-    bootstrapPromise = fetch(`${getApiBaseUrl()}/api/auth/me`, {
+    bootstrapPromise = fetch(`${getApiBaseUrl()}/api/bootstrap`, {
+      method: 'POST',
       credentials: 'include',
     }).then(async (response) => {
       if (!response.ok) {
-        throw new Error(await response.text() || 'Failed to load auth state')
-      }
-      const authState = await response.json() as AuthState
-      if (authState.mode === 'disabled') {
-        const bootstrapResponse = await fetch(`${getApiBaseUrl()}/api/bootstrap`, {
-          method: 'POST',
-          credentials: 'include',
-        })
-        if (!bootstrapResponse.ok) {
-          throw new Error(await bootstrapResponse.text() || 'Failed to bootstrap browser session')
-        }
+        throw new Error(await response.text() || 'Failed to bootstrap browser session')
       }
     }).catch((error) => {
       bootstrapPromise = null
@@ -117,7 +85,6 @@ async function fetchJson<T>(input: string, init?: RequestInit, isUnauthorizedRet
 
   if (response.status === 401 && !isUnauthorizedRetry) {
     bootstrapPromise = null
-    getBrowserQueryClient()?.invalidateQueries({ queryKey: ['auth-state'] })
     return fetchJson<T>(input, init, true)
   }
 
@@ -141,55 +108,8 @@ function sortSessions(sessions: Session[]) {
 }
 
 export const apiClient = {
-  async getAuthState() {
-    const response = await fetch(`${getApiBaseUrl()}/api/auth/me`, {
-      credentials: 'include',
-    })
-    if (!response.ok) {
-      throw new Error(await response.text() || 'Failed to load auth state')
-    }
-    return response.json() as Promise<AuthState>
-  },
-
   async bootstrap() {
     await ensureBrowserBootstrap()
-  },
-
-  getLoginUrl() {
-    return '/api/auth/login'
-  },
-
-  async listUsers() {
-    return fetchJson<AuthUser[]>('/api/admin/users')
-  },
-
-  async approveUser(userId: string) {
-    return fetchJson<AuthUser>(`/api/admin/users/${userId}/approve`, {
-      method: 'POST',
-    })
-  },
-
-  async disableUser(userId: string) {
-    return fetchJson<AuthUser>(`/api/admin/users/${userId}/disable`, {
-      method: 'POST',
-    })
-  },
-
-  async listCliTokens() {
-    return fetchJson<CliTokenRecord[]>('/api/auth/cli/tokens')
-  },
-
-  async createCliToken(label: string) {
-    return fetchJson<{ id: string; token: string; label?: string | null }>('/api/auth/cli/tokens', {
-      method: 'POST',
-      body: JSON.stringify({ label }),
-    })
-  },
-
-  async revokeCliToken(tokenId: string) {
-    return fetchJson<{ status: string; id: string }>(`/api/auth/cli/tokens/${tokenId}`, {
-      method: 'DELETE',
-    })
   },
 
   async createSession() {

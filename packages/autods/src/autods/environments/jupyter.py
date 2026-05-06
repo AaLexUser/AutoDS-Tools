@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
@@ -29,8 +30,6 @@ from nbformat.v4 import (
     new_output,
     output_from_msg,
 )
-
-from autods.tools.base import Observation
 
 from .display_utils import display_code
 from .kernel_management import KernelManagement
@@ -49,6 +48,13 @@ UV_BIN = os.environ.get("AUTODS_UV_BIN", "uv")
 
 # Keep track of active executor instances for cleanup on exit
 active_executors: list["JupyterExecutor"] = []
+
+
+@dataclass
+class Observation:
+    is_success: bool = True
+    message: str = ""
+    base64_images: list[str] | None = None
 
 
 class JupyterExecutor:
@@ -86,7 +92,6 @@ class JupyterExecutor:
         self.nb_path = self.workspace / "code.ipynb"
 
         self.nb = self._load_or_create_notebook(nb)
-        self._notebook_replayed = not self._has_code_cells_to_replay()
 
         self.kernel_manager = KernelManagement(env_vars)
         from rich.console import Console
@@ -146,47 +151,6 @@ class JupyterExecutor:
                 logger.warning("Failed to load existing notebook at %s: %s", self.nb_path, exc)
 
         return new_notebook()
-
-    def _has_code_cells_to_replay(self) -> bool:
-        """Check if notebook has code cells and exists on disk."""
-        has_code_cells = any(getattr(cell, "cell_type", None) == "code" for cell in self.nb.cells)
-        return has_code_cells and self.nb_path.exists()
-
-    async def _ensure_notebook_replayed(self) -> None:
-        """Replay existing notebook cells if not already done."""
-        if self._notebook_replayed:
-            return
-
-        logger.info("Replaying existing notebook cells from %s", self.nb_path)
-        failures: List[Tuple[int, str]] = []
-
-        for idx, cell in enumerate(self.nb.cells):
-            if getattr(cell, "cell_type", None) != "code":
-                continue
-
-            try:
-                success, output, _ = await self.run_cell(cell, idx)
-                if not success:
-                    logger.warning(
-                        "Skipping notebook cell %s during replay due to failure: %s",
-                        idx,
-                        output,
-                    )
-                    failures.append((idx, output))
-            except Exception as exc:
-                logger.warning("Error while replaying notebook cell %s: %s", idx, exc)
-                failures.append((idx, str(exc)))
-
-        self._notebook_replayed = True
-
-        if failures:
-            logger.warning(
-                "Notebook replay completed with %s failed cell(s): %s",
-                len(failures),
-                ", ".join(str(idx) for idx, _ in failures),
-            )
-        else:
-            logger.info("Notebook replay complete")
 
     async def init_kernel(self) -> None:
         """Initialize the kernel if needed."""
@@ -353,12 +317,6 @@ class JupyterExecutor:
             timeout: Optional timeout in seconds for cell execution.
                      If None, uses the default EXECUTION_TIMEOUT_SECONDS.
         """
-        try:
-            await self._ensure_notebook_replayed()
-        except Exception as replay_error:
-            message = f"Failed to replay existing notebook before execution: {replay_error}"
-            return Observation(is_success=False, message=message, base64_images=[])
-
         display_code(code, self.console, language)
 
         try:

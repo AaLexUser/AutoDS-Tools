@@ -3,51 +3,13 @@
 import { memo } from 'react'
 import ReactMarkdown, { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Code, Terminal, FileCode, CheckSquare, Send } from 'lucide-react'
-import { ExecutionCell } from './ExecutionCell'
 import { CodeBlock } from './CodeBlock'
-import { parseAssistantContent, type ParsedAssistantContent } from '@/lib/utils/assistant-segments'
-import { type Message as SessionMessage } from '@/stores/useSessionStore'
 
 interface MarkdownRendererProps {
   content: string
-  assistantContent?: ParsedAssistantContent
-  attachedEnvironment?: SessionMessage
-  attachedEnvironmentExpanded?: boolean
-  onToggleAttachedEnvironment?: (messageId: string) => void
 }
 
 const remarkPlugins = [remarkGfm]
-
-const TOOL_ICONS: Record<string, React.ReactNode> = {
-  python: <Code className="h-3.5 w-3.5" />,
-  ipython: <Code className="h-3.5 w-3.5" />,
-  jupyter: <Code className="h-3.5 w-3.5" />,
-  shell: <Terminal className="h-3.5 w-3.5" />,
-  bash: <Terminal className="h-3.5 w-3.5" />,
-  sh: <Terminal className="h-3.5 w-3.5" />,
-  codeblocks: <FileCode className="h-3.5 w-3.5" />,
-  fileblocks: <FileCode className="h-3.5 w-3.5" />,
-  todo: <CheckSquare className="h-3.5 w-3.5" />,
-  submit: <Send className="h-3.5 w-3.5" />,
-}
-
-function toolIcon(tool: string): React.ReactNode {
-  return TOOL_ICONS[tool.toLowerCase()] ?? <Code className="h-3.5 w-3.5" />
-}
-
-function toolTitle(tool: string): string {
-  return tool
-    .replace(/[-_]+/g, ' ')
-    .replace(/\b\w/g, c => c.toUpperCase())
-}
-
-function toolLanguage(tool: string): string {
-  const t = tool.toLowerCase()
-  if (t === 'shell' || t === 'bash' || t === 'sh') return 'bash'
-  if (t === 'python' || t === 'ipython' || t === 'jupyter') return 'python'
-  return 'text'
-}
 
 const markdownComponents: Components = {
   code({ className, children, ...props }) {
@@ -113,88 +75,12 @@ const markdownComponents: Components = {
 
 function MarkdownRendererComponent({
   content,
-  assistantContent,
-  attachedEnvironment,
-  attachedEnvironmentExpanded = false,
-  onToggleAttachedEnvironment,
 }: MarkdownRendererProps) {
-  const parsedContent = assistantContent ?? parseAssistantContent(content)
-  const { segments, lastToolSegmentIndex } = parsedContent
-
   return (
     <div className="space-y-3">
-      {segments.map((segment, index) => {
-        if (segment.type === 'text') {
-          return segment.content.trim() ? (
-            <ReactMarkdown
-              key={index}
-              remarkPlugins={remarkPlugins}
-              components={markdownComponents}
-            >
-              {segment.content}
-            </ReactMarkdown>
-          ) : null
-        }
-
-        if (segment.presentation === 'assistant-code' && segment.tool) {
-          const lang = segment.tool.toLowerCase()
-          const shouldAttach =
-            index === lastToolSegmentIndex &&
-            attachedEnvironment &&
-            onToggleAttachedEnvironment
-
-          return (
-            <ExecutionCell
-              key={index}
-              title={toolTitle(segment.tool)}
-              language={lang}
-              code={segment.content}
-              icon={toolIcon(lang)}
-              output={
-                shouldAttach
-                  ? {
-                      id: attachedEnvironment.id,
-                      content: attachedEnvironment.content,
-                      isTruncated: attachedEnvironment.isTruncated,
-                      expanded: attachedEnvironmentExpanded,
-                      onToggleExpanded: onToggleAttachedEnvironment,
-                    }
-                  : undefined
-              }
-            />
-          )
-        }
-
-        if (segment.tool) {
-          const t = segment.tool.toLowerCase()
-          const shouldAttach =
-            index === lastToolSegmentIndex &&
-            attachedEnvironment &&
-            onToggleAttachedEnvironment
-          return (
-            <ExecutionCell
-              key={index}
-              title={toolTitle(segment.tool)}
-              language={toolLanguage(t)}
-              code={segment.content}
-              icon={toolIcon(t)}
-              output={
-                shouldAttach
-                  ? {
-                      id: attachedEnvironment.id,
-                      content: attachedEnvironment.content,
-                      isTruncated: attachedEnvironment.isTruncated,
-                      expanded: attachedEnvironmentExpanded,
-                      onToggleExpanded: onToggleAttachedEnvironment,
-                    }
-                  : undefined
-              }
-            />
-          )
-        }
-
-        return null
-      })}
+      <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>
+        {content}
+      </ReactMarkdown>
     </div>
   )
 }

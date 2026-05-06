@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import multiprocessing
-from typing import Any, Optional
+from typing import Optional
 
 import uvicorn
 from dotenv import load_dotenv
@@ -16,12 +16,11 @@ logger = get_logger(__name__)
 def run_api_server(
     host: str = "localhost",
     port: int = 8000,
-    agent_options: Optional[dict[str, Any]] = None,
 ):
     load_dotenv()
-    setup_logging(console=False)
+    setup_logging(console=True)
     logger.info("Starting API server on {}:{}", host, port)
-    app = create_app(agent_options=agent_options or {})
+    app = create_app()
     uvicorn.run(
         app,
         host=host,
@@ -36,12 +35,11 @@ def start_web_server(
     api_host: str = "localhost",
     api_port: int = 8000,
     background: bool = False,
-    agent_options: Optional[dict[str, Any]] = None,
 ) -> Optional[multiprocessing.Process]:
     if background:
         api_process = multiprocessing.Process(
             target=run_api_server,
-            args=(api_host, api_port, agent_options),
+            args=(api_host, api_port),
         )
         try:
             api_process.start()
@@ -52,7 +50,7 @@ def start_web_server(
             return None
 
     try:
-        run_api_server(api_host, api_port, agent_options)
+        run_api_server(api_host, api_port)
     except KeyboardInterrupt:
         logger.info("Stopping API server")
 

@@ -5,11 +5,35 @@ import { apiClient, type TranscriptResponse } from '@/lib/api/client'
 import { useSessionStore, Message } from '@/stores/useSessionStore'
 
 interface WebSocketMessage {
-  type: 'token' | 'tool' | 'status' | 'environment'
-  data?: string
-  message_id?: string
+  type:
+    | 'run_started'
+    | 'assistant_text_delta'
+    | 'tool_call_started'
+    | 'tool_call_completed'
+    | 'run_completed'
+    | 'run_failed'
+    | 'run_cancelled'
+    | 'run_cancelling'
+  data?: string | { output_text?: string; is_truncated?: boolean } | Record<string, unknown> | null
+  message_id?: string | null
+  tool_call_id?: string | null
+  tool_name?: string | null
   timestamp: string
-  truncated?: boolean
+}
+
+function formatToolCallContent(toolName: string | null | undefined, data: WebSocketMessage['data']): string {
+  const title = toolName || 'tool'
+  if (data == null) {
+    return title
+  }
+  if (typeof data === 'string') {
+    return `${title}\n${data}`.trim()
+  }
+  try {
+    return `${title}\n${JSON.stringify(data, null, 2)}`
+  } catch {
+    return title
+  }
 }
 
 export function useAgentWebSocket(sessionId: string | null) {
@@ -89,7 +113,7 @@ export function useAgentWebSocket(sessionId: string | null) {
         const store = useSessionStore.getState()
 
         switch (msg.type) {
-          case 'token': {
+          case 'assistant_text_delta': {
             // Get fresh state to check last message (avoid stale closure)
             const currentMessages = store.messages
             const lastMsg = currentMessages[currentMessages.length - 1]
@@ -114,7 +138,7 @@ export function useAgentWebSocket(sessionId: string | null) {
               const newMessage: Message = {
                 id: incomingId,
                 role: 'assistant',
-                content: msg.data || '',
+                content: typeof msg.data === 'string' ? msg.data : '',
                 timestamp: new Date(msg.timestamp),
                 isStreaming: true,
               }
@@ -123,41 +147,75 @@ export function useAgentWebSocket(sessionId: string | null) {
               store.setStatus('streaming')
             } else {
               // Append to existing streaming message
-              store.appendToLastMessage(msg.data || '')
+              store.appendToLastMessage(typeof msg.data === 'string' ? msg.data : '')
             }
             break
           }
 
-          case 'environment': {
-            // Environment output (tool results, bash output, code execution results)
-            const envMessage: Message = {
-              id: `${msg.type}-${Date.now()}`,
-              role: 'environment',
-              content: msg.data || '',
+          case 'tool_call_started': {
+            const toolMessage: Message = {
+              id: msg.tool_call_id || `tool-${Date.now()}`,
+              role: 'tool',
+              content: formatToolCallContent(msg.tool_name, msg.data),
               timestamp: new Date(msg.timestamp),
               isStreaming: false,
-              isTruncated: msg.truncated,
+            }
+            store.addMessage(toolMessage)
+            break
+          }
+
+          case 'tool_call_completed': {
+            const payload = typeof msg.data === 'object' && msg.data !== null ? msg.data : {}
+            const envMessage: Message = {
+              id: msg.tool_call_id ? `tool-output-${msg.tool_call_id}` : `tool-output-${Date.now()}`,
+              role: 'tool',
+              content: typeof payload.output_text === 'string' ? payload.output_text : '',
+              timestamp: new Date(msg.timestamp),
+              isStreaming: false,
+              isTruncated: Boolean(payload.is_truncated),
             }
             store.addMessage(envMessage)
             break
           }
 
-          case 'status': {
-            const status = msg.data
+          case 'run_started': {
+            store.setStatus('streaming')
+            store.setStreaming(true)
+            break
+          }
 
-            if (status === 'completed' || status === 'done' || status === 'cancelled') {
-              store.updateLastMessage({ isStreaming: false })
-              store.setStreaming(false)
-              store.setStatus('idle')
-            } else if (status === 'cancelling') {
-              store.setStatus('cancelling')
-            } else if (status?.startsWith('Error:') || status?.startsWith('error')) {
-              store.updateLastMessage({ isStreaming: false })
-              store.setStreaming(false)
-              store.setStatus('error', status)
-            } else if (status === 'started' || status === 'running') {
-              store.setStatus('streaming')
+          case 'run_completed': {
+            store.updateLastMessage({ isStreaming: false })
+            store.setStreaming(false)
+            store.setStatus('idle')
+            break
+          }
+
+          case 'run_cancelled': {
+            store.updateLastMessage({ isStreaming: false })
+            store.setStreaming(false)
+            store.setStatus('idle')
+            break
+          }
+
+          case 'run_cancelling': {
+            store.setStatus('cancelling')
+            break
+          }
+
+          case 'run_failed': {
+            const errorText = typeof msg.data === 'string' ? msg.data : 'Session ended in error'
+            const envMessage: Message = {
+              id: `run-failed-${Date.now()}`,
+              role: 'tool',
+              content: errorText,
+              timestamp: new Date(msg.timestamp),
+              isStreaming: false,
             }
+            store.addMessage(envMessage)
+            store.updateLastMessage({ isStreaming: false })
+            store.setStreaming(false)
+            store.setStatus('error', errorText)
             break
           }
         }

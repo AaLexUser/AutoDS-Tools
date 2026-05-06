@@ -3,7 +3,6 @@
 import { memo } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
-import { type ParsedAssistantContent } from '@/lib/utils/assistant-segments'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { FunStatus } from './FunStatus'
 import { stripAnsiCodes, looksLikeErrorOutput } from '@/lib/utils/terminal-output'
@@ -11,25 +10,19 @@ import { type Message as MessageType } from '@/stores/useSessionStore'
 
 interface MessageProps {
   message: MessageType
-  assistantContent?: ParsedAssistantContent
   isLast: boolean
   expanded: boolean
   onToggleExpanded: (messageId: string) => void
-  attachedEnvironment?: MessageType
-  attachedEnvironmentExpanded?: boolean
 }
 
 function MessageComponent({
   message,
-  assistantContent,
   isLast,
   expanded,
   onToggleExpanded,
-  attachedEnvironment,
-  attachedEnvironmentExpanded = false,
 }: MessageProps) {
   const isUser = message.role === 'user'
-  const isEnvironment = message.role === 'environment'
+  const isTool = message.role === 'tool'
 
   if (isUser) {
     return (
@@ -43,7 +36,7 @@ function MessageComponent({
     )
   }
 
-  if (isEnvironment) {
+  if (isTool && message.id.startsWith('tool-output-')) {
     const isTruncatable = message.isTruncated
     const cleaned = stripAnsiCodes(message.content).trimEnd()
     const isError = looksLikeErrorOutput(cleaned)
@@ -83,16 +76,23 @@ function MessageComponent({
     )
   }
 
+  if (isTool) {
+    return (
+      <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface/50">
+        <div className="border-b border-border-subtle px-3 py-2 text-[11px] font-medium uppercase tracking-[0.18em] text-text-muted">
+          Tool Call
+        </div>
+        <pre className="overflow-x-auto px-3 py-3 font-mono text-[13px] leading-relaxed whitespace-pre-wrap break-all text-text-secondary">
+          {message.content}
+        </pre>
+      </div>
+    )
+  }
+
   return (
     <div className="min-w-0 overflow-hidden">
       <div className="prose-terminal">
-        <MarkdownRenderer
-          content={message.content}
-          assistantContent={assistantContent}
-          attachedEnvironment={attachedEnvironment}
-          attachedEnvironmentExpanded={attachedEnvironmentExpanded}
-          onToggleAttachedEnvironment={onToggleExpanded}
-        />
+        <MarkdownRenderer content={message.content} />
         <FunStatus active={message.isStreaming && isLast} className="mt-3" />
       </div>
     </div>
@@ -109,12 +109,7 @@ function arePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     p.role === n.role &&
     p.isStreaming === n.isStreaming &&
     p.isTruncated === n.isTruncated &&
-    prev.expanded === next.expanded &&
-    prev.assistantContent === next.assistantContent &&
-    prev.attachedEnvironment?.id === next.attachedEnvironment?.id &&
-    prev.attachedEnvironment?.content === next.attachedEnvironment?.content &&
-    prev.attachedEnvironment?.isTruncated === next.attachedEnvironment?.isTruncated &&
-    prev.attachedEnvironmentExpanded === next.attachedEnvironmentExpanded
+    prev.expanded === next.expanded
   )
 }
 

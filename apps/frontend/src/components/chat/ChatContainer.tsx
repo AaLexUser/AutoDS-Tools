@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
 import { Message } from './Message'
 import { InputArea } from './InputArea'
@@ -13,7 +13,6 @@ import {
 } from '@/stores/useSessionStore'
 import { useAgentWebSocket } from '@/hooks/useAgentWebSocket'
 import { ChevronDown } from 'lucide-react'
-import { buildChatRenderItems } from '@/lib/utils/chat-render-items'
 
 export function ChatContainer() {
   const currentSessionId = useCurrentSessionId()
@@ -24,7 +23,6 @@ export function ChatContainer() {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [atBottom, setAtBottom] = useState(true)
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({})
-  const renderItems = useMemo(() => buildChatRenderItems(messages), [messages])
 
   useAgentWebSocket(currentSessionId)
 
@@ -32,7 +30,7 @@ export function ChatContainer() {
     setAtBottom(bottom)
   }, [])
 
-  const showScrollButton = !atBottom && renderItems.length > 0
+  const showScrollButton = !atBottom && messages.length > 0
 
   const scrollToBottom = useCallback(() => {
     virtuosoRef.current?.scrollToIndex({
@@ -59,7 +57,7 @@ export function ChatContainer() {
             {sessionError}
           </div>
         )}
-        {renderItems.length === 0 ? (
+        {messages.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-text-muted">
               Send a message to begin.
@@ -68,36 +66,23 @@ export function ChatContainer() {
         ) : (
           <Virtuoso
             ref={virtuosoRef}
-            data={renderItems}
-            computeItemKey={(_, item) =>
-              item.attachedEnvironment
-                ? `${item.message.id}:${item.attachedEnvironment.id}`
-                : item.message.id
-            }
+            data={messages}
+            computeItemKey={(_, item) => item.id}
             className="h-full"
             followOutput={
               isStreaming ? 'smooth' : atBottom ? 'smooth' : false
             }
             atBottomStateChange={handleAtBottomStateChange}
             atBottomThreshold={100}
-            initialTopMostItemIndex={renderItems.length - 1}
+            initialTopMostItemIndex={messages.length - 1}
             itemContent={(index, item) => (
               <div className="mx-auto max-w-3xl px-5">
                 <div className={index === 0 ? 'pt-8' : 'pt-5'}>
                   <Message
-                    message={item.message}
-                    assistantContent={item.assistantContent}
-                    isLast={index === renderItems.length - 1}
-                    expanded={Boolean(expandedIds[item.message.id])}
+                    message={item}
+                    isLast={index === messages.length - 1}
+                    expanded={Boolean(expandedIds[item.id])}
                     onToggleExpanded={handleToggleExpanded}
-                    attachedEnvironment={item.attachedEnvironment}
-                    attachedEnvironmentExpanded={
-                      item.attachedEnvironment
-                        ? Boolean(
-                            expandedIds[item.attachedEnvironment.id],
-                          )
-                        : false
-                    }
                   />
                 </div>
               </div>

@@ -54,7 +54,7 @@ class SessionMetadata(BaseModel):
 
 
 class TranscriptMessage(BaseModel):
-    role: Literal["user", "assistant", "environment"]
+    role: Literal["user", "assistant", "tool"]
     content: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     message_id: str | None = None

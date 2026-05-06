@@ -2,7 +2,7 @@
 
 `autods` is the core Python library for the project.
 
-It contains the reusable agent runtime, prompting, task inference, tools, session handling, configuration, and environment abstractions. It does not expose a runnable app by itself.
+It contains the reusable agent runtime, stage pipeline, tools, session handling, configuration, and environment abstractions. It does not expose a runnable app by itself.
 
 ## Source Layout
 
@@ -16,7 +16,6 @@ packages/autods/
 │   ├── prompting/
 │   ├── runtime/
 │   ├── sessions/
-│   ├── task_inference/
 │   ├── tools/
 │   └── utils/
 └── tests/

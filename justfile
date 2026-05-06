@@ -1,5 +1,5 @@
-python-src := "packages/autods/src apps/server/src apps/cli/src packages/pygrad/src"
-python-tests := "packages/autods/tests apps/server/tests apps/cli/tests packages/pygrad/tests"
+python-src := "apps/server/src apps/cli/src"
+python-tests := "apps/server/tests apps/cli/tests"
 frontend-dir := "apps/frontend"
 cognee-compose-file := "docker/docker-compose-cognee.yml"
 docker-compose-file := "docker/docker-compose.yml"
@@ -123,3 +123,6 @@ docker-down:
 # Tail logs for the VPS deployment stack
 docker-logs *FLAGS:
     docker compose --env-file {{docker-env-file}} -f {{docker-compose-file}} logs -f {{FLAGS}}
+
+cloc:
+    cloc {{python-src}} {{python-tests}} {{frontend-dir}} --exclude-dir=node_modules,.git,__pycache__,.next,.venv,.ruff_cache,.pytest_cache,.mypy_cache,.ty_cache,dist,build,htmlcov,.turbo,coverage,package.json,package-lock.json,tsconfig.json
