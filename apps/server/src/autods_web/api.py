@@ -139,6 +139,9 @@ class RunEvent(BaseModel):
     tool_call_id: str | None = None
     tool_name: str | None = None
     data: str | dict[str, Any] | None = None
+    tool_started_at: str | None = None
+    tool_completed_at: str | None = None
+    tool_duration_ms: int | None = None
     timestamp: str
 
 
@@ -235,6 +238,14 @@ def _build_transcript_response(
                 "timestamp": message.timestamp.isoformat(),
                 "isStreaming": message.is_streaming,
                 "isTruncated": message.is_truncated,
+                "toolCallId": message.tool_call_id,
+                "toolName": message.tool_name,
+                "toolArgs": message.tool_args,
+                "toolResult": message.tool_result,
+                "toolStatus": message.tool_status,
+                "toolStartedAt": message.tool_started_at.isoformat() if message.tool_started_at else None,
+                "toolCompletedAt": message.tool_completed_at.isoformat() if message.tool_completed_at else None,
+                "toolDurationMs": message.tool_duration_ms,
             }
             for index, message in enumerate(messages, start=1)
         ],

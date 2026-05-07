@@ -7,6 +7,14 @@ export interface Message {
   timestamp: Date
   isStreaming?: boolean
   isTruncated?: boolean
+  toolCallId?: string | null
+  toolName?: string | null
+  toolArgs?: unknown
+  toolResult?: string | null
+  toolStatus?: 'running' | 'completed' | 'error' | null
+  toolStartedAt?: string | null
+  toolCompletedAt?: string | null
+  toolDurationMs?: number | null
 }
 
 interface SessionState {
@@ -22,6 +30,7 @@ interface SessionState {
   addMessage: (message: Message) => void
   appendToLastMessage: (content: string) => void
   updateLastMessage: (updates: Partial<Message>) => void
+  updateMessage: (id: string, updates: Partial<Message>) => void
   setStreaming: (streaming: boolean) => void
   setStatus: (status: SessionState['status'], error?: string | null) => void
   clearMessages: () => void
@@ -69,6 +78,13 @@ export const useSessionStore = create<SessionState>((set) => ({
       }
       return { messages }
     }),
+
+  updateMessage: (id, updates) =>
+    set((state) => ({
+      messages: state.messages.map((message) =>
+        message.id === id ? { ...message, ...updates } : message
+      ),
+    })),
 
   setStreaming: (streaming) => set({ isStreaming: streaming }),
 

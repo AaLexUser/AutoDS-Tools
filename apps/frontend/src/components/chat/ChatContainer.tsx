@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
 import { Message } from './Message'
 import { InputArea } from './InputArea'
@@ -23,6 +23,17 @@ export function ChatContainer() {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [atBottom, setAtBottom] = useState(true)
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({})
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  const hasRunningTool = useMemo(
+    () => messages.some(message => message.role === 'tool' && message.toolStatus === 'running'),
+    [messages],
+  )
+
+  useEffect(() => {
+    if (!hasRunningTool) return
+    const interval = window.setInterval(() => setNowMs(Date.now()), 250)
+    return () => window.clearInterval(interval)
+  }, [hasRunningTool])
 
   useAgentWebSocket(currentSessionId)
 
@@ -82,6 +93,7 @@ export function ChatContainer() {
                     message={item}
                     isLast={index === messages.length - 1}
                     expanded={Boolean(expandedIds[item.id])}
+                    nowMs={nowMs}
                     onToggleExpanded={handleToggleExpanded}
                   />
                 </div>

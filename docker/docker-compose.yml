@@ -12,7 +12,7 @@ services:
       BASIC_AUTH_USERNAME: ${BASIC_AUTH_USERNAME:?BASIC_AUTH_USERNAME is required}
       BASIC_AUTH_PASSWORD_HASH: ${BASIC_AUTH_PASSWORD_HASH:?BASIC_AUTH_PASSWORD_HASH is required}
     ports:
-      - "80:80"
+      - "8000:80"
       - "443:443"
     restart: unless-stopped
     volumes:

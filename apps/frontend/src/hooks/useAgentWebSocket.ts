@@ -18,22 +18,10 @@ interface WebSocketMessage {
   message_id?: string | null
   tool_call_id?: string | null
   tool_name?: string | null
+  tool_started_at?: string | null
+  tool_completed_at?: string | null
+  tool_duration_ms?: number | null
   timestamp: string
-}
-
-function formatToolCallContent(toolName: string | null | undefined, data: WebSocketMessage['data']): string {
-  const title = toolName || 'tool'
-  if (data == null) {
-    return title
-  }
-  if (typeof data === 'string') {
-    return `${title}\n${data}`.trim()
-  }
-  try {
-    return `${title}\n${JSON.stringify(data, null, 2)}`
-  } catch {
-    return title
-  }
 }
 
 export function useAgentWebSocket(sessionId: string | null) {
@@ -53,6 +41,14 @@ export function useAgentWebSocket(sessionId: string | null) {
       timestamp: new Date(message.timestamp),
       isStreaming: message.isStreaming,
       isTruncated: message.isTruncated,
+      toolCallId: message.toolCallId,
+      toolName: message.toolName,
+      toolArgs: message.toolArgs,
+      toolResult: message.toolResult,
+      toolStatus: message.toolStatus,
+      toolStartedAt: message.toolStartedAt,
+      toolCompletedAt: message.toolCompletedAt,
+      toolDurationMs: message.toolDurationMs,
     }))
     const store = useSessionStore.getState()
     store.setMessages(messages)
@@ -153,28 +149,66 @@ export function useAgentWebSocket(sessionId: string | null) {
           }
 
           case 'tool_call_started': {
-            const toolMessage: Message = {
-              id: msg.tool_call_id || `tool-${Date.now()}`,
+            const id = msg.tool_call_id || `tool-${Date.now()}`
+            const existing = store.messages.find(message => message.id === id)
+            const updates: Message = {
+              id,
               role: 'tool',
-              content: formatToolCallContent(msg.tool_name, msg.data),
+              content: msg.tool_name || 'tool',
               timestamp: new Date(msg.timestamp),
               isStreaming: false,
+              toolCallId: msg.tool_call_id || id,
+              toolName: msg.tool_name || 'tool',
+              toolArgs: msg.data,
+              toolResult: null,
+              toolStatus: 'running',
+              toolStartedAt: msg.tool_started_at || existing?.toolStartedAt || msg.timestamp,
+              toolCompletedAt: null,
+              toolDurationMs: null,
             }
-            store.addMessage(toolMessage)
+            if (existing) {
+              store.updateMessage(id, updates)
+            } else {
+              store.addMessage(updates)
+            }
             break
           }
 
           case 'tool_call_completed': {
             const payload = typeof msg.data === 'object' && msg.data !== null ? msg.data : {}
-            const envMessage: Message = {
-              id: msg.tool_call_id ? `tool-output-${msg.tool_call_id}` : `tool-output-${Date.now()}`,
-              role: 'tool',
-              content: typeof payload.output_text === 'string' ? payload.output_text : '',
+            const id = msg.tool_call_id || `tool-${Date.now()}`
+            const outputText = typeof payload.output_text === 'string' ? payload.output_text : ''
+            const existing = store.messages.find(message => message.id === id)
+            const startedAt = msg.tool_started_at || existing?.toolStartedAt || null
+            const completedAt = msg.tool_completed_at || msg.timestamp
+            const fallbackDuration = startedAt
+              ? Math.max(0, new Date(completedAt).getTime() - new Date(startedAt).getTime())
+              : null
+            const toolStatus = 'tool_status' in payload && payload.tool_status === 'error' ? 'error' : 'completed'
+            const updates: Partial<Message> = {
+              content: msg.tool_name || existing?.toolName || 'tool',
               timestamp: new Date(msg.timestamp),
               isStreaming: false,
               isTruncated: Boolean(payload.is_truncated),
+              toolCallId: msg.tool_call_id || id,
+              toolName: msg.tool_name || existing?.toolName || 'tool',
+              toolResult: outputText,
+              toolStatus,
+              toolStartedAt: startedAt,
+              toolCompletedAt: completedAt,
+              toolDurationMs: typeof msg.tool_duration_ms === 'number' ? msg.tool_duration_ms : fallbackDuration,
             }
-            store.addMessage(envMessage)
+            if (existing) {
+              store.updateMessage(id, updates)
+            } else {
+              store.addMessage({
+                id,
+                role: 'tool',
+                ...updates,
+                content: updates.content || 'tool',
+                timestamp: updates.timestamp || new Date(msg.timestamp),
+              })
+            }
             break
           }
 
@@ -205,14 +239,17 @@ export function useAgentWebSocket(sessionId: string | null) {
 
           case 'run_failed': {
             const errorText = typeof msg.data === 'string' ? msg.data : 'Session ended in error'
-            const envMessage: Message = {
+            const errorMessage: Message = {
               id: `run-failed-${Date.now()}`,
               role: 'tool',
-              content: errorText,
+              content: 'run_failed',
               timestamp: new Date(msg.timestamp),
               isStreaming: false,
+              toolName: 'run_failed',
+              toolResult: errorText,
+              toolStatus: 'error',
             }
-            store.addMessage(envMessage)
+            store.addMessage(errorMessage)
             store.updateLastMessage({ isStreaming: false })
             store.setStreaming(false)
             store.setStatus('error', errorText)

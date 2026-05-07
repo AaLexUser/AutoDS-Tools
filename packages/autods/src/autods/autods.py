@@ -43,6 +43,9 @@ def _event(
     tool_call_id: str | None = None,
     tool_name: str | None = None,
     data: str | dict[str, Any] | None = None,
+    tool_started_at: str | None = None,
+    tool_completed_at: str | None = None,
+    tool_duration_ms: int | None = None,
 ) -> AutoDSEvent:
     return {
         "type": event_type,
@@ -51,6 +54,9 @@ def _event(
         "tool_call_id": tool_call_id,
         "tool_name": tool_name,
         "data": data,
+        "tool_started_at": tool_started_at,
+        "tool_completed_at": tool_completed_at,
+        "tool_duration_ms": tool_duration_ms,
         "timestamp": timestamp or datetime.now(UTC).isoformat(),
     }
 
@@ -109,12 +115,18 @@ def _tool_call_transcript_message(
     tool_call_id: str,
     tool_name: str,
     raw_args: str | None,
+    started_at: datetime,
 ) -> TranscriptMessage:
     args = _decode_tool_args(raw_args)
     return TranscriptMessage(
         role="tool",
-        content=_format_tool_call_content(tool_name, args),
+        content=tool_name,
         message_id=tool_call_id,
+        tool_call_id=tool_call_id,
+        tool_name=tool_name,
+        tool_args=args,
+        tool_status="running",
+        tool_started_at=started_at,
     )
 
 
@@ -129,15 +141,44 @@ def _human_transcript_message(message: HumanMessage, *, user_prompt: str) -> Tra
     )
 
 
-def _tool_result_transcript_message(message: Any) -> TranscriptMessage | None:
+def _tool_result_transcript_message(
+    message: Any,
+    *,
+    tool_name: str | None = None,
+    tool_args: dict[str, Any] | str | None = None,
+    started_at: datetime | None = None,
+    completed_at: datetime | None = None,
+) -> TranscriptMessage | None:
     content = _message_content_to_text(getattr(message, "content", ""))
     if not content:
         return None
     tool_call_id = getattr(message, "tool_call_id", None)
+    if tool_call_id:
+        completed_at = completed_at or datetime.now(UTC)
+        duration_ms = (
+            max(0, int((completed_at - started_at).total_seconds() * 1000))
+            if started_at is not None
+            else None
+        )
+        tool_status = "error" if getattr(message, "status", None) == "error" else "completed"
+        return TranscriptMessage(
+            role="tool",
+            content=tool_name or "tool",
+            message_id=tool_call_id,
+            is_truncated=False,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            tool_result=content,
+            tool_status=tool_status,
+            tool_started_at=started_at,
+            tool_completed_at=completed_at,
+            tool_duration_ms=duration_ms,
+        )
     return TranscriptMessage(
         role="tool",
         content=content,
-        message_id=f"tool-output-{tool_call_id}" if tool_call_id else getattr(message, "id", None),
+        message_id=getattr(message, "id", None),
         is_truncated=False,
     )
 
@@ -170,7 +211,8 @@ class _TranscriptRecorder:
         self.current_message_id: str | None = None
         self.current_assistant_chunks: list[str] = []
         self.started_tool_calls: set[str] = set()
-        self.active_tool_calls: dict[str, dict[str, str | None]] = {}
+        self.active_tool_calls: dict[str, dict[str, Any]] = {}
+        self.tool_call_ids_by_index: dict[int, str] = {}
 
     def emit(
         self,
@@ -181,6 +223,9 @@ class _TranscriptRecorder:
         tool_call_id: str | None = None,
         tool_name: str | None = None,
         data: str | dict[str, Any] | None = None,
+        tool_started_at: str | None = None,
+        tool_completed_at: str | None = None,
+        tool_duration_ms: int | None = None,
     ) -> None:
         if self.on_event is not None:
             self.on_event(
@@ -192,6 +237,9 @@ class _TranscriptRecorder:
                     tool_call_id=tool_call_id,
                     tool_name=tool_name,
                     data=data,
+                    tool_started_at=tool_started_at,
+                    tool_completed_at=tool_completed_at,
+                    tool_duration_ms=tool_duration_ms,
                 )
             )
 
@@ -223,7 +271,13 @@ class _TranscriptRecorder:
         try:
             self.service.append_transcript_message(
                 self.session.id,
-                TranscriptMessage(role="tool", content=error_message),
+                TranscriptMessage(
+                    role="tool",
+                    content="run_failed",
+                    tool_name="run_failed",
+                    tool_result=error_message,
+                    tool_status="error",
+                ),
             )
         except SessionNotFoundError:
             logger.debug("Skipping error transcript append for deleted session %s", self.session.id)
@@ -237,16 +291,27 @@ class _TranscriptRecorder:
             self._record_ai_chunk(message)
             return
 
+        tool_call_id = getattr(message, "tool_call_id", None)
+        active_tool_call = self.active_tool_calls.get(tool_call_id, {}) if tool_call_id else {}
         transcript_message = (
             _human_transcript_message(message, user_prompt=self.prompt)
             if isinstance(message, HumanMessage)
-            else _tool_result_transcript_message(message)
+            else _tool_result_transcript_message(
+                message,
+                tool_name=active_tool_call.get("tool_name"),
+                tool_args=active_tool_call.get("tool_args"),
+                started_at=active_tool_call.get("started_at"),
+                completed_at=datetime.now(UTC),
+            )
         )
         if transcript_message is None:
             return
 
         self.finalize_assistant()
-        self.service.append_transcript_message(self.session.id, transcript_message)
+        if tool_call_id:
+            self.service.upsert_transcript_message(self.session.id, transcript_message)
+        else:
+            self.service.append_transcript_message(self.session.id, transcript_message)
         self._emit_tool_result(message, transcript_message)
 
     def _record_ai_chunk(self, message: AIMessageChunk) -> None:
@@ -277,35 +342,51 @@ class _TranscriptRecorder:
 
     def _record_tool_call_chunk(self, tool_chunk: dict[str, Any]) -> None:
         tool_call_id = tool_chunk.get("id")
-        tool_name = tool_chunk.get("name")
-        if not tool_call_id or not tool_name:
+        chunk_index = tool_chunk.get("index")
+        if not tool_call_id and isinstance(chunk_index, int):
+            tool_call_id = self.tool_call_ids_by_index.get(chunk_index)
+        if not tool_call_id:
+            return
+        if isinstance(chunk_index, int):
+            self.tool_call_ids_by_index[chunk_index] = tool_call_id
+
+        active = self.active_tool_calls.get(tool_call_id, {})
+        tool_name = tool_chunk.get("name") or active.get("tool_name")
+        if not tool_name:
             return
 
+        raw_args = f"{active.get('raw_args') or ''}{tool_chunk.get('args') or ''}"
+        args = _decode_tool_args(raw_args)
+        started_at = active.get("started_at") or datetime.now(UTC)
         self.active_tool_calls[tool_call_id] = {
             "tool_name": tool_name,
-            "message_id": self.current_message_id,
+            "message_id": active.get("message_id") or self.current_message_id,
+            "raw_args": raw_args,
+            "tool_args": args,
+            "started_at": started_at,
         }
         self.service.upsert_transcript_message(
             self.session.id,
             _tool_call_transcript_message(
                 tool_call_id=tool_call_id,
                 tool_name=tool_name,
-                raw_args=tool_chunk.get("args"),
+                raw_args=raw_args,
+                started_at=started_at,
             ),
         )
-        if tool_call_id in self.started_tool_calls:
-            return
 
-        self.started_tool_calls.add(tool_call_id)
         assistant_message_id = self.current_message_id
-        if self.current_assistant_chunks:
-            self.finalize_assistant()
+        if tool_call_id not in self.started_tool_calls:
+            self.started_tool_calls.add(tool_call_id)
+            if self.current_assistant_chunks:
+                self.finalize_assistant()
         self.emit(
             "tool_call_started",
             message_id=assistant_message_id,
             tool_call_id=tool_call_id,
             tool_name=tool_name,
-            data=_decode_tool_args(tool_chunk.get("args")),
+            data=args,
+            tool_started_at=started_at.isoformat(),
         )
 
     def _emit_tool_result(self, message: Any, transcript_message: TranscriptMessage) -> None:
@@ -319,9 +400,17 @@ class _TranscriptRecorder:
             message_id=active.get("message_id"),
             tool_call_id=tool_call_id,
             tool_name=active.get("tool_name"),
+            tool_started_at=transcript_message.tool_started_at.isoformat()
+            if transcript_message.tool_started_at is not None
+            else None,
+            tool_completed_at=transcript_message.tool_completed_at.isoformat()
+            if transcript_message.tool_completed_at is not None
+            else None,
+            tool_duration_ms=transcript_message.tool_duration_ms,
             data={
-                "output_text": transcript_message.content,
+                "output_text": transcript_message.tool_result or transcript_message.content,
                 "is_truncated": transcript_message.is_truncated,
+                "tool_status": transcript_message.tool_status,
             },
         )
 

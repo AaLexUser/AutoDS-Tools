@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -60,6 +60,14 @@ class TranscriptMessage(BaseModel):
     message_id: str | None = None
     is_truncated: bool = False
     is_streaming: bool = False
+    tool_call_id: str | None = None
+    tool_name: str | None = None
+    tool_args: dict[str, Any] | str | None = None
+    tool_result: str | None = None
+    tool_status: Literal["running", "completed", "error"] | None = None
+    tool_started_at: datetime | None = None
+    tool_completed_at: datetime | None = None
+    tool_duration_ms: int | None = None
 
 
 def validate_principal_id(principal_id: str) -> str:

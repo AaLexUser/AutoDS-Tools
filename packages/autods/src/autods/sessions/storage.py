@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
@@ -103,6 +104,19 @@ class SessionStorage:
                     ADD COLUMN is_streaming INTEGER NOT NULL DEFAULT 0
                     """
                 )
+            for column in (
+                "tool_call_id",
+                "tool_name",
+                "tool_args",
+                "tool_result",
+                "tool_status",
+                "tool_started_at",
+                "tool_completed_at",
+            ):
+                if column not in transcript_columns:
+                    connection.execute(f"ALTER TABLE transcript_messages ADD COLUMN {column} TEXT")
+            if "tool_duration_ms" not in transcript_columns:
+                connection.execute("ALTER TABLE transcript_messages ADD COLUMN tool_duration_ms INTEGER")
 
     def principal_path(self, principal_id: str, *, create: bool = True) -> Path:
         path = self.principals_root / validate_principal_id(principal_id)
@@ -227,8 +241,9 @@ class SessionStorage:
                 """
                 INSERT INTO transcript_messages (
                     session_id, role, content, timestamp, message_id, is_truncated,
-                    is_streaming
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    is_streaming, tool_call_id, tool_name, tool_args, tool_result, tool_status,
+                    tool_started_at, tool_completed_at, tool_duration_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -238,6 +253,14 @@ class SessionStorage:
                     message.message_id,
                     int(message.is_truncated),
                     int(message.is_streaming),
+                    message.tool_call_id,
+                    message.tool_name,
+                    json.dumps(message.tool_args, ensure_ascii=False) if message.tool_args is not None else None,
+                    message.tool_result,
+                    message.tool_status,
+                    message.tool_started_at.isoformat() if message.tool_started_at is not None else None,
+                    message.tool_completed_at.isoformat() if message.tool_completed_at is not None else None,
+                    message.tool_duration_ms,
                 ),
             )
         return message
@@ -265,8 +288,10 @@ class SessionStorage:
                     """
                     INSERT INTO transcript_messages (
                         session_id, role, content, timestamp, message_id,
-                        is_truncated, is_streaming
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        is_truncated, is_streaming, tool_call_id, tool_name, tool_args,
+                        tool_result, tool_status, tool_started_at, tool_completed_at,
+                        tool_duration_ms
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         session_id,
@@ -276,6 +301,14 @@ class SessionStorage:
                         message.message_id,
                         int(message.is_truncated),
                         int(message.is_streaming),
+                        message.tool_call_id,
+                        message.tool_name,
+                        json.dumps(message.tool_args, ensure_ascii=False) if message.tool_args is not None else None,
+                        message.tool_result,
+                        message.tool_status,
+                        message.tool_started_at.isoformat() if message.tool_started_at is not None else None,
+                        message.tool_completed_at.isoformat() if message.tool_completed_at is not None else None,
+                        message.tool_duration_ms,
                     ),
                 )
             else:
@@ -283,7 +316,9 @@ class SessionStorage:
                     """
                     UPDATE transcript_messages
                     SET role = ?, content = ?, timestamp = ?, is_truncated = ?,
-                        is_streaming = ?
+                        is_streaming = ?, tool_call_id = ?, tool_name = ?, tool_args = ?,
+                        tool_result = ?, tool_status = ?, tool_started_at = ?,
+                        tool_completed_at = ?, tool_duration_ms = ?
                     WHERE seq = ?
                     """,
                     (
@@ -292,6 +327,14 @@ class SessionStorage:
                         message.timestamp.isoformat(),
                         int(message.is_truncated),
                         int(message.is_streaming),
+                        message.tool_call_id,
+                        message.tool_name,
+                        json.dumps(message.tool_args, ensure_ascii=False) if message.tool_args is not None else None,
+                        message.tool_result,
+                        message.tool_status,
+                        message.tool_started_at.isoformat() if message.tool_started_at is not None else None,
+                        message.tool_completed_at.isoformat() if message.tool_completed_at is not None else None,
+                        message.tool_duration_ms,
                         row["seq"],
                     ),
                 )
@@ -303,20 +346,24 @@ class SessionStorage:
             rows = connection.execute(
                 """
                 SELECT role, content, timestamp, message_id, is_truncated,
-                       is_streaming
+                       is_streaming, tool_call_id, tool_name, tool_args, tool_result,
+                       tool_status, tool_started_at, tool_completed_at, tool_duration_ms
                 FROM transcript_messages
                 WHERE session_id = ?
                 ORDER BY seq ASC
                 """,
                 (session_id,),
             ).fetchall()
-        return [
-            TranscriptMessage.model_validate(
-                {
-                    **dict(row),
-                    "is_truncated": bool(row["is_truncated"]),
-                    "is_streaming": bool(row["is_streaming"]),
-                }
-            )
-            for row in rows
-        ]
+        messages: list[TranscriptMessage] = []
+        for row in rows:
+            values = dict(row)
+            raw_tool_args = values.get("tool_args")
+            if raw_tool_args is not None:
+                try:
+                    values["tool_args"] = json.loads(raw_tool_args)
+                except json.JSONDecodeError:
+                    values["tool_args"] = raw_tool_args
+            values["is_truncated"] = bool(row["is_truncated"])
+            values["is_streaming"] = bool(row["is_streaming"])
+            messages.append(TranscriptMessage.model_validate(values))
+        return messages

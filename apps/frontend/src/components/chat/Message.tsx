@@ -1,17 +1,16 @@
 'use client'
 
 import { memo } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
-import { cn } from '@/lib/utils/cn'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { FunStatus } from './FunStatus'
-import { stripAnsiCodes, looksLikeErrorOutput } from '@/lib/utils/terminal-output'
+import { ToolCallMessage } from './ToolCallMessage'
 import { type Message as MessageType } from '@/stores/useSessionStore'
 
 interface MessageProps {
   message: MessageType
   isLast: boolean
   expanded: boolean
+  nowMs: number
   onToggleExpanded: (messageId: string) => void
 }
 
@@ -19,6 +18,7 @@ function MessageComponent({
   message,
   isLast,
   expanded,
+  nowMs,
   onToggleExpanded,
 }: MessageProps) {
   const isUser = message.role === 'user'
@@ -36,56 +36,14 @@ function MessageComponent({
     )
   }
 
-  if (isTool && message.id.startsWith('tool-output-')) {
-    const isTruncatable = message.isTruncated
-    const cleaned = stripAnsiCodes(message.content).trimEnd()
-    const isError = looksLikeErrorOutput(cleaned)
-
-    return (
-      <div className="overflow-hidden rounded-lg border border-border-subtle bg-background-secondary/40">
-        {isTruncatable && (
-          <button
-            type="button"
-            aria-expanded={expanded}
-            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-muted transition-colors hover:text-text-primary"
-            onClick={() => onToggleExpanded(message.id)}
-          >
-            {expanded ? (
-              <ChevronDown className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
-            )}
-            <span>{expanded ? 'Collapse output' : 'Expand full output'}</span>
-          </button>
-        )}
-        <div className="relative px-3 pb-3 pt-2">
-          <pre
-            className={cn(
-              'font-mono text-[13px] leading-relaxed whitespace-pre-wrap break-all overflow-x-auto',
-              isError ? 'text-status-error' : 'text-text-secondary',
-              isTruncatable && !expanded && 'max-h-48 overflow-hidden',
-            )}
-          >
-            {cleaned}
-          </pre>
-          {isTruncatable && !expanded && (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-background-secondary/40 to-transparent" />
-          )}
-        </div>
-      </div>
-    )
-  }
-
   if (isTool) {
     return (
-      <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface/50">
-        <div className="border-b border-border-subtle px-3 py-2 text-[11px] font-medium uppercase tracking-[0.18em] text-text-muted">
-          Tool Call
-        </div>
-        <pre className="overflow-x-auto px-3 py-3 font-mono text-[13px] leading-relaxed whitespace-pre-wrap break-all text-text-secondary">
-          {message.content}
-        </pre>
-      </div>
+      <ToolCallMessage
+        message={message}
+        expanded={expanded}
+        nowMs={nowMs}
+        onToggleExpanded={onToggleExpanded}
+      />
     )
   }
 
@@ -103,12 +61,19 @@ function arePropsEqual(prev: MessageProps, next: MessageProps): boolean {
   const p = prev.message
   const n = next.message
   if (prev.isLast !== next.isLast) return false
+  if (p.role === 'tool' && p.toolStatus === 'running' && prev.nowMs !== next.nowMs) return false
   return (
     p.id === n.id &&
     p.content === n.content &&
     p.role === n.role &&
     p.isStreaming === n.isStreaming &&
     p.isTruncated === n.isTruncated &&
+    p.toolName === n.toolName &&
+    p.toolResult === n.toolResult &&
+    p.toolStatus === n.toolStatus &&
+    p.toolStartedAt === n.toolStartedAt &&
+    p.toolCompletedAt === n.toolCompletedAt &&
+    p.toolDurationMs === n.toolDurationMs &&
     prev.expanded === next.expanded
   )
 }

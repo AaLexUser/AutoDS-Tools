@@ -246,7 +246,7 @@ async def tool_error_middleware(
     try:
         return await handler(request)
     except RuntimeError as e:
-        return ToolMessage(content=str(e), tool_call_id=request.tool_call["id"])
+        return ToolMessage(content=str(e), tool_call_id=request.tool_call["id"], status="error")
 
 
 def create_skip_agent_if_report_exists_middleware(report_path: Path):

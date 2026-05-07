@@ -15,6 +15,14 @@ export interface TranscriptMessage {
   timestamp: string
   isStreaming?: boolean
   isTruncated?: boolean
+  toolCallId?: string | null
+  toolName?: string | null
+  toolArgs?: unknown
+  toolResult?: string | null
+  toolStatus?: 'running' | 'completed' | 'error' | null
+  toolStartedAt?: string | null
+  toolCompletedAt?: string | null
+  toolDurationMs?: number | null
 }
 
 export interface TranscriptResponse {

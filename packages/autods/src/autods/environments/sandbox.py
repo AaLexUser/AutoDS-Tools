@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import time
 from collections.abc import Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
@@ -98,6 +99,14 @@ class LocalSandboxAdapter(SandboxAdapter):
             cmd_env.update(env)
 
         start = time.perf_counter()
+        process_kwargs: dict[str, object] = {}
+        if os.name != "nt":
+            # Put the command in its own process group so a timeout kills the
+            # shell and every child it spawned. Killing only the shell can leave
+            # Python/joblib children alive with stdout/stderr pipes open, which
+            # makes communicate() hang forever.
+            process_kwargs["preexec_fn"] = os.setsid
+
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
@@ -105,6 +114,7 @@ class LocalSandboxAdapter(SandboxAdapter):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(cwd),
                 env=cmd_env,
+                **process_kwargs,
             )
         except FileNotFoundError as exc:
             raise SandboxError(f"failed to spawn command {command[0]!r}") from exc
@@ -114,7 +124,13 @@ class LocalSandboxAdapter(SandboxAdapter):
             stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=timeout)
         except TimeoutError:
             timed_out = True
-            process.kill()
+            if os.name != "nt":
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                process.kill()
             stdout_bytes, stderr_bytes = await process.communicate()
 
         duration = time.perf_counter() - start
@@ -123,7 +139,7 @@ class LocalSandboxAdapter(SandboxAdapter):
         stderr = stderr_bytes.decode("utf-8", errors="replace")
         exit_code = process.returncode if process.returncode is not None else -1
 
-        if timed_out and exit_code == -1:
+        if timed_out:
             exit_code = 124  # mirror GNU timeout default for clarity
 
         return SandboxResult(
