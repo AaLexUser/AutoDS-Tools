@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any
 
 from neo4j import GraphDatabase
 
+from pygrad.processor.api_tier import classify_api_tier
+
 if TYPE_CHECKING:
     from pygrad.processor.processor import ClassInfo, FunctionInfo
 
@@ -155,12 +157,14 @@ class Neo4jGraphConverter:
 
     def _create_class_node(self, session, class_info: "ClassInfo", repository_id: str) -> None:
         """Create a Class node."""
+        api_tier = classify_api_tier(class_info.api_path, class_info.name, "Class")
         query = """
         MERGE (c:Class {repository_id: $repository_id, api_path: $api_path})
         SET c.name = $name,
             c.description = $description,
             c.init_parameters = $init_parameters,
-            c.init_description = $init_description
+            c.init_description = $init_description,
+            c.api_tier = $api_tier
         """
         session.run(
             query,
@@ -170,16 +174,19 @@ class Neo4jGraphConverter:
             description=class_info.description,
             init_parameters=class_info.initialization.get("parameters", ""),
             init_description=class_info.initialization.get("description", ""),
+            api_tier=api_tier,
         )
 
     def _create_function_node(self, session, func: "FunctionInfo", repository_id: str) -> None:
         """Create a Function node."""
+        api_tier = classify_api_tier(func.api_path, func.name, "Function")
         query = """
         MERGE (f:Function {repository_id: $repository_id, api_path: $api_path})
         SET f.name = $name,
             f.description = $description,
             f.header = $header,
-            f.output = $output
+            f.output = $output,
+            f.api_tier = $api_tier
         """
         session.run(
             query,
@@ -189,17 +196,20 @@ class Neo4jGraphConverter:
             description=func.description,
             header=func.header,
             output=func.output,
+            api_tier=api_tier,
         )
 
     def _create_method_node(self, session, method: "FunctionInfo", class_api_path: str, repository_id: str) -> None:
         """Create a Method node and link it to its Class."""
+        api_tier = classify_api_tier(method.api_path, method.name, "Method")
         # Create method node
         query = """
         MERGE (m:Method {repository_id: $repository_id, api_path: $api_path})
         SET m.name = $name,
             m.description = $description,
             m.header = $header,
-            m.output = $output
+            m.output = $output,
+            m.api_tier = $api_tier
         """
         session.run(
             query,
@@ -209,6 +219,7 @@ class Neo4jGraphConverter:
             description=method.description,
             header=method.header,
             output=method.output,
+            api_tier=api_tier,
         )
 
         # Create relationship to class
@@ -241,7 +252,9 @@ class Neo4jGraphConverter:
             e.line = $line,
             e.variable = $variable,
             e.header = $header,
-            e.source_code = $source_code
+            e.source_code = $source_code,
+            e.description = $description,
+            e.api_tier = 'example'
         """
         session.run(
             query,
@@ -253,6 +266,7 @@ class Neo4jGraphConverter:
             variable=data.get("variable"),
             header=data.get("header"),
             source_code=data.get("source_code", ""),
+            description=data.get("header") or data.get("type", ""),
         )
 
         return example_id

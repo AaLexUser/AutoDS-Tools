@@ -9,7 +9,7 @@ from typing import Any
 from xml.dom import minidom
 
 from pygrad.parser.treesitter import RepoTreeSitter
-from pygrad.processor.example_extractor import extract_examples_from_repository
+from pygrad.processor.example_sources import extract_all_examples_from_repository
 from pygrad.processor.neo4j_graph import Neo4jGraphConverter
 from pygrad.processor.utils import extract_important_api, extract_test_example_paths
 
@@ -64,7 +64,7 @@ async def process_repository(
     processor = PythonRepositoryProcessor(str(repo_path))
     classes, functions = processor.process_repository_data()
 
-    api_usage_groups = extract_examples_from_repository(str(repo_path), processor.analysis_results)
+    api_usage_groups = extract_all_examples_from_repository(str(repo_path), processor.analysis_results)
     processor._merge_examples_into_data(classes, functions, api_usage_groups)
 
     output_path = processor.save_repository_data(classes, functions, important_files, output_file)
@@ -105,7 +105,7 @@ async def process_repository_to_neo4j(
     processor = PythonRepositoryProcessor(str(repo_path))
     classes, functions = processor.process_repository_data()
 
-    api_usage_groups = extract_examples_from_repository(str(repo_path), processor.analysis_results)
+    api_usage_groups = extract_all_examples_from_repository(str(repo_path), processor.analysis_results)
     processor._merge_examples_into_data(classes, functions, api_usage_groups)
 
     stats = processor.save_repository_to_neo4j(

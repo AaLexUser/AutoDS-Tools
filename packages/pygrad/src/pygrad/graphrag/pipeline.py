@@ -88,7 +88,7 @@ The following information was retrieved from the repository:
 
 # Instructions
 
-Based on the context provided above, answer the user's query. Include relevant code examples from the context when applicable.
+Based on the context provided above, answer the user's query. Include relevant code examples from the context when applicable. Prefer public entry points and usage examples from the context over internal implementation details.
 """
 
         try:

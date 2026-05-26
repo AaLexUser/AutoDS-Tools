@@ -114,7 +114,7 @@ class MarkdownExampleExtractor:
         while i < len(lines):
             line = lines[i]
 
-            fence_match = re.match(r"^```(\w+)?", line)
+            fence_match = re.match(r"^\s*```(\w+)?", line)
             if fence_match:
                 language = fence_match.group(1) or "text"
                 start_line = i + 1

@@ -10,8 +10,59 @@ from tqdm import trange
 
 from pygrad.graphrag.common import NODE_LABELS
 from pygrad.graphrag.http_client import create_sync_client, post_json_with_retries
+from pygrad.processor.api_tier import infer_topic_hints, tier_label_for_embedding
 
 _DEFAULT_EMBEDDING_DIMENSIONS = 768
+_EXAMPLE_CODE_LIMIT = 1500
+
+
+def build_api_embedding_text(
+    api_path: str,
+    name: str,
+    description: str,
+    node_type: str,
+    api_tier: str | None = None,
+    header: str | None = None,
+    init_parameters: str | None = None,
+) -> str:
+    """Build rich embedding text for API nodes."""
+    tier = api_tier or "api"
+    tier_label = tier_label_for_embedding(tier)
+    topic_hints = infer_topic_hints(description)
+
+    parts = [f"{name} ({tier_label})", f"API: {api_path}"]
+    if topic_hints:
+        parts.append(topic_hints)
+    if init_parameters:
+        parts.append(f"Constructor: {name}({init_parameters})")
+    if header:
+        parts.append(f"Signature: {header}")
+    if description:
+        parts.append(description)
+    return "\n".join(parts)
+
+
+def build_example_embedding_text(
+    source_file: str,
+    source_code: str,
+    line: str | int | None = None,
+    example_type: str | None = None,
+    header: str | None = None,
+    description: str | None = None,
+) -> str:
+    """Build rich embedding text for usage examples."""
+    parts = ["Usage example"]
+    if example_type:
+        parts.append(f"Type: {example_type}")
+    if header:
+        parts.append(f"Topic: {header}")
+    if description and description != header:
+        parts.append(description)
+    parts.append(f"Source: {source_file}:{line or '?'}")
+    code_snippet = source_code[:_EXAMPLE_CODE_LIMIT] if source_code else ""
+    if code_snippet:
+        parts.append(code_snippet)
+    return "\n".join(parts)
 
 
 def get_embedding_dimensions_from_env() -> int:
@@ -250,19 +301,22 @@ async def generate_and_store_embeddings(
             print(f"embedding {node_type} nodes")
             # Query nodes without embeddings
             if node_type == "Example":
-                # For examples, use source_code and source_file
                 query = f"""
                 MATCH (n:{node_type} {{repository_id: $repository_id}})
                 WHERE n.embedding IS NULL
                 RETURN n.source_file as source_file, n.source_code as source_code,
-                       n.line as line, elementId(n) as id
+                       n.line as line, n.example_type as example_type,
+                       n.header as header, n.description as description,
+                       elementId(n) as id
                 """
             else:
-                # For API elements, use api_path and description
                 query = f"""
                 MATCH (n:{node_type} {{repository_id: $repository_id}})
                 WHERE n.embedding IS NULL
-                RETURN n.api_path as api_path, n.description as description, elementId(n) as id
+                RETURN n.api_path as api_path, n.name as name,
+                       n.description as description, n.api_tier as api_tier,
+                       n.header as header, n.init_parameters as init_parameters,
+                       elementId(n) as id
                 """
 
             result = session.run(cast(Any, query), repository_id=repository_id)
@@ -273,18 +327,25 @@ async def generate_and_store_embeddings(
                 batch = nodes[i : i + batch_size]
 
                 for node in batch:
-                    # Generate embedding text based on node type
                     if node_type == "Example":
-                        # For examples: source_file:line + code snippet
-                        source_file = node.get("source_file", "")
-                        line = node.get("line", "")
-                        source_code = node.get("source_code", "")
-                        # Take first 500 chars of code to keep embedding focused
-                        code_snippet = source_code[:500] if source_code else ""
-                        text = f"{source_file}:{line}\n{code_snippet}"
+                        text = build_example_embedding_text(
+                            source_file=node.get("source_file", ""),
+                            source_code=node.get("source_code", ""),
+                            line=node.get("line"),
+                            example_type=node.get("example_type"),
+                            header=node.get("header"),
+                            description=node.get("description"),
+                        )
                     else:
-                        # For API elements: api_path: description
-                        text = f"{node['api_path']}: {node['description'] or ''}"
+                        text = build_api_embedding_text(
+                            api_path=node["api_path"],
+                            name=node.get("name", ""),
+                            description=node.get("description") or "",
+                            node_type=node_type,
+                            api_tier=node.get("api_tier"),
+                            header=node.get("header"),
+                            init_parameters=node.get("init_parameters"),
+                        )
 
                     embedding = embedder.embed_query(text)
 
