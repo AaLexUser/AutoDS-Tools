@@ -11,11 +11,12 @@
 
 	@backend path /api/* /health
 	@install_stream path /api/sessions/*/install/stream
-	@uploads path /api/sessions/*/dataset
+	@uploads path /api/sessions/*/dataset /api/sessions/*/dataset/chunk
 
 	# Long-running file uploads: avoid proxy timeouts and response compression.
 	handle @uploads {
 		reverse_proxy autods-server:8000 {
+			flush_interval -1
 			transport http {
 				read_timeout 24h
 				write_timeout 24h

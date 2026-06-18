@@ -1,4 +1,8 @@
 import { getApiBaseUrl } from './base-url'
+import {
+  CHUNKED_UPLOAD_THRESHOLD_BYTES,
+  UPLOAD_CHUNK_BYTES,
+} from '@/lib/uploads'
 
 export interface Session {
   id: string
@@ -144,6 +148,110 @@ function parseUploadError(responseText: string, status: number): string {
   return responseText
 }
 
+interface ChunkUploadResponse {
+  complete: boolean
+  received: number
+  total_size?: number
+  paths?: string[]
+}
+
+async function uploadChunkOnce(
+  sessionId: string,
+  formData: FormData,
+  signal?: AbortSignal,
+): Promise<ChunkUploadResponse> {
+  await ensureBrowserBootstrap()
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+
+    const abortUpload = () => {
+      xhr.abort()
+    }
+
+    if (signal) {
+      if (signal.aborted) {
+        reject(new DOMException('Upload aborted', 'AbortError'))
+        return
+      }
+      signal.addEventListener('abort', abortUpload, { once: true })
+    }
+
+    xhr.addEventListener('load', () => {
+      if (signal) {
+        signal.removeEventListener('abort', abortUpload)
+      }
+
+      if (xhr.status === 401) {
+        reject(Object.assign(new Error('Unauthorized'), { status: 401 }))
+        return
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as ChunkUploadResponse)
+        } catch {
+          reject(new Error('Invalid upload response'))
+        }
+        return
+      }
+
+      reject(new Error(parseUploadError(xhr.responseText, xhr.status)))
+    })
+
+    xhr.addEventListener('error', () => {
+      if (signal) {
+        signal.removeEventListener('abort', abortUpload)
+      }
+      reject(new Error('Network error while uploading file'))
+    })
+
+    xhr.addEventListener('abort', () => {
+      if (signal) {
+        signal.removeEventListener('abort', abortUpload)
+      }
+      reject(new DOMException('Upload aborted', 'AbortError'))
+    })
+
+    xhr.open('POST', `${getApiBaseUrl()}/api/sessions/${sessionId}/dataset/chunk`)
+    xhr.withCredentials = true
+    xhr.send(formData)
+  })
+}
+
+async function uploadFileChunked(
+  sessionId: string,
+  file: File,
+  onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
+): Promise<{ paths: string[] }> {
+  let offset = 0
+
+  while (offset < file.size) {
+    if (signal?.aborted) {
+      throw new DOMException('Upload aborted', 'AbortError')
+    }
+
+    const chunkBlob = file.slice(offset, offset + UPLOAD_CHUNK_BYTES)
+    const formData = new FormData()
+    formData.append('filename', file.name)
+    formData.append('offset', String(offset))
+    formData.append('total_size', String(file.size))
+    formData.append('chunk', chunkBlob, file.name)
+
+    const result = await uploadChunkOnce(sessionId, formData, signal)
+    offset += chunkBlob.size
+    onProgress?.(Math.min(100, Math.round((offset / file.size) * 100)))
+
+    if (result.complete) {
+      onProgress?.(100)
+      return { paths: result.paths ?? [file.name] }
+    }
+  }
+
+  throw new Error('Upload ended before file was complete')
+}
+
 async function uploadFileOnce(
   sessionId: string,
   file: File,
@@ -274,8 +382,10 @@ export const apiClient = {
     signal?: AbortSignal,
     isUnauthorizedRetry = false,
   ): Promise<{ paths: string[] }> {
+    const upload =
+      file.size >= CHUNKED_UPLOAD_THRESHOLD_BYTES ? uploadFileChunked : uploadFileOnce
     try {
-      return await uploadFileOnce(sessionId, file, onProgress, signal)
+      return await upload(sessionId, file, onProgress, signal)
     } catch (error) {
       const isUnauthorized =
         error instanceof Error &&

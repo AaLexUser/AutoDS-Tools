@@ -19,8 +19,14 @@ export const ALLOWED_UPLOAD_ACCEPT = ALLOWED_UPLOAD_EXTENSIONS.join(',')
 /** Prompt before uploading files at or above this size (1 GB). */
 export const LARGE_FILE_CONFIRM_BYTES = 1024 * 1024 * 1024
 
-/** Maximum number of simultaneous upload requests. */
-export const MAX_CONCURRENT_UPLOADS = 3
+/** Use chunked uploads at or above this size to avoid reverse-proxy body limits. */
+export const CHUNKED_UPLOAD_THRESHOLD_BYTES = 64 * 1024 * 1024
+
+/** Chunk size for large uploads (32 MB). */
+export const UPLOAD_CHUNK_BYTES = 32 * 1024 * 1024
+
+/** Maximum number of simultaneous upload requests (must match server-side session serialization). */
+export const MAX_CONCURRENT_UPLOADS = 1
 
 export const FILES_ONLY_MESSAGE = 'Please analyze the uploaded files.'
 

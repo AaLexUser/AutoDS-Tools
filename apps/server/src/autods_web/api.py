@@ -18,6 +18,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, TypeVar
 from fastapi import (
     FastAPI,
     File,
+    Form,
     HTTPException,
     Request,
     Response,
@@ -104,16 +105,40 @@ def _format_bytes(num: int) -> str:
     return f"{num} B"
 
 
-async def _save_upload_file(
+def _validate_upload_filename(filename: str) -> str:
+    safe_name = Path(filename).name
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="Uploaded file must have a filename")
+    ext = Path(safe_name).suffix.lower()
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File type '{ext}' not allowed")
+    return safe_name
+
+
+def _part_path_for_filename(uploads_dir: Path, filename: str) -> Path:
+    digest = hashlib.sha256(filename.encode()).hexdigest()[:32]
+    return uploads_dir / f"{digest}.part"
+
+
+def _write_upload_chunk_at_offset(part_path: Path, offset: int, data: bytes) -> None:
+    part_path.parent.mkdir(parents=True, exist_ok=True)
+    if offset == 0:
+        with part_path.open("wb") as handle:
+            handle.write(data)
+        return
+    with part_path.open("r+b") as handle:
+        handle.seek(offset)
+        handle.write(data)
+
+
+async def _stream_upload_to_temp(
     item: UploadFile,
-    destination: Path,
-    uploads_dir: Path,
+    temp_path: Path,
     *,
     workspace_used: int,
     replace_bytes: int,
 ) -> int:
-    uploads_dir.mkdir(parents=True, exist_ok=True)
-    temp_path = uploads_dir / f"{uuid.uuid4().hex}.part"
+    temp_path.parent.mkdir(parents=True, exist_ok=True)
     size = 0
     try:
         with temp_path.open("wb") as handle:
@@ -134,11 +159,36 @@ async def _save_upload_file(
                         ),
                     )
                 handle.write(chunk)
-        temp_path.replace(destination)
         return size
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
+
+
+async def _finalize_upload(
+    autods: AutoDS,
+    principal_id: str,
+    session_id: str,
+    temp_path: Path,
+    destination: Path,
+    *,
+    bytes_written: int,
+) -> None:
+    async with _session_upload_lock(session_id):
+        current_session = autods.get_session(principal_id, session_id)
+        workspace_used = current_session.folder_size
+        replace_bytes = destination.stat().st_size if destination.exists() else 0
+        if workspace_used - replace_bytes + bytes_written > _MAX_WORKSPACE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Workspace storage limit reached ({_format_bytes(_MAX_WORKSPACE_BYTES)})",
+            )
+        await run_in_threadpool(_commit_upload, temp_path, destination)
+        autods.adjust_folder_size(principal_id, session_id, bytes_written - replace_bytes)
+
+
+def _commit_upload(temp_path: Path, destination: Path) -> None:
+    temp_path.replace(destination)
 
 
 def _venv_python_path(venv_path: Path) -> Path:
@@ -538,34 +588,115 @@ def create_app(
         uploaded_paths: list[str] = []
 
         async with _upload_semaphore_limit():
-            async with _session_upload_lock(session.id):
-                for item in files:
-                    filename = Path(item.filename or "").name
-                    if not filename:
-                        raise HTTPException(status_code=400, detail="Uploaded file must have a filename")
-                    ext = Path(filename).suffix.lower()
-                    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
-                        raise HTTPException(status_code=400, detail=f"File type '{ext}' not allowed")
-                    destination = workspace / filename
-                    replace_bytes = destination.stat().st_size if destination.exists() else 0
-                    current_session = autods.get_session(principal_id, session.id)
-                    workspace_used = current_session.folder_size
-                    if workspace_used - replace_bytes >= _MAX_WORKSPACE_BYTES:
-                        raise HTTPException(
-                            status_code=413,
-                            detail=f"Workspace storage limit reached ({_format_bytes(_MAX_WORKSPACE_BYTES)})",
-                        )
-                    bytes_written = await _save_upload_file(
-                        item,
-                        destination,
-                        uploads_dir,
-                        workspace_used=workspace_used,
-                        replace_bytes=replace_bytes,
+            for item in files:
+                filename = _validate_upload_filename(item.filename or "")
+                destination = workspace / filename
+                replace_bytes = destination.stat().st_size if destination.exists() else 0
+                current_session = autods.get_session(principal_id, session.id)
+                workspace_used = current_session.folder_size
+                if workspace_used - replace_bytes >= _MAX_WORKSPACE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Workspace storage limit reached ({_format_bytes(_MAX_WORKSPACE_BYTES)})",
                     )
-                    autods.adjust_folder_size(principal_id, session.id, bytes_written - replace_bytes)
-                    uploaded_paths.append(filename)
+
+                temp_path = uploads_dir / f"{uuid.uuid4().hex}.part"
+                bytes_written = await _stream_upload_to_temp(
+                    item,
+                    temp_path,
+                    workspace_used=workspace_used,
+                    replace_bytes=replace_bytes,
+                )
+                try:
+                    await _finalize_upload(
+                        autods,
+                        principal_id,
+                        session.id,
+                        temp_path,
+                        destination,
+                        bytes_written=bytes_written,
+                    )
+                except Exception:
+                    temp_path.unlink(missing_ok=True)
+                    raise
+
+                uploaded_paths.append(filename)
 
         return {"paths": uploaded_paths}
+
+    @app.post("/api/sessions/{session_id}/dataset/chunk")
+    async def upload_dataset_chunk(
+        request: Request,
+        session_id: str,
+        filename: str = Form(...),
+        offset: int = Form(...),
+        total_size: int = Form(...),
+        chunk: UploadFile = File(...),
+    ):
+        if offset < 0 or total_size < 1:
+            raise HTTPException(status_code=400, detail="Invalid upload offset or size")
+        if total_size > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File exceeds maximum upload size ({_format_bytes(_MAX_UPLOAD_BYTES)})",
+            )
+
+        principal_id = _require_principal(request)
+        session = _get_owned_session(principal_id, session_id)
+        workspace = _workspace_for(session)
+        uploads_dir = workspace / _UPLOADS_DIRNAME
+        safe_filename = _validate_upload_filename(filename)
+        destination = workspace / safe_filename
+        replace_bytes = destination.stat().st_size if destination.exists() else 0
+        current_session = autods.get_session(principal_id, session.id)
+        workspace_used = current_session.folder_size
+        if workspace_used - replace_bytes + total_size > _MAX_WORKSPACE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Workspace storage limit reached ({_format_bytes(_MAX_WORKSPACE_BYTES)})",
+            )
+
+        part_path = _part_path_for_filename(uploads_dir, safe_filename)
+        async with _upload_semaphore_limit():
+            chunk_data = await chunk.read()
+            if offset + len(chunk_data) > total_size:
+                raise HTTPException(status_code=400, detail="Chunk exceeds declared file size")
+            if not chunk_data and total_size > 0:
+                raise HTTPException(status_code=400, detail="Empty upload chunk")
+
+            try:
+                await run_in_threadpool(_write_upload_chunk_at_offset, part_path, offset, chunk_data)
+            except Exception:
+                if offset == 0:
+                    part_path.unlink(missing_ok=True)
+                raise
+
+            received = offset + len(chunk_data)
+            if received < total_size:
+                return {"complete": False, "received": received, "total_size": total_size}
+
+            actual_size = await run_in_threadpool(lambda path=part_path: path.stat().st_size)
+            if actual_size != total_size:
+                part_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Incomplete upload: received {_format_bytes(actual_size)} of {_format_bytes(total_size)}",
+                )
+
+            try:
+                await _finalize_upload(
+                    autods,
+                    principal_id,
+                    session.id,
+                    part_path,
+                    destination,
+                    bytes_written=total_size,
+                )
+            except Exception:
+                part_path.unlink(missing_ok=True)
+                raise
+
+        return {"complete": True, "received": total_size, "paths": [safe_filename]}
 
     @app.post("/api/sessions/{session_id}/install")
     async def install_libraries(request: Request, session_id: str, body: InstallLibrariesRequest):
