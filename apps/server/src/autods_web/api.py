@@ -49,6 +49,7 @@ HEADER_PRINCIPAL_NAME = "X-AutoDS-Principal"
 ARTIFACT_TREE_MAX_DEPTH = int(os.environ.get("ARTIFACT_TREE_MAX_DEPTH", "5"))
 ARTIFACT_TREE_MAX_ITEMS = int(os.environ.get("ARTIFACT_TREE_MAX_ITEMS", "10000"))
 _PIP_INSTALL_TIMEOUT_SEC = max(1, int(os.environ.get("AUTODS_PIP_INSTALL_TIMEOUT_SEC", "3600")))
+_PIP_INSTALL_HEARTBEAT_SEC = max(1, int(os.environ.get("AUTODS_PIP_INSTALL_HEARTBEAT_SEC", "2")))
 _PIP_INSTALL_STDERR_TAIL = int(os.environ.get("AUTODS_PIP_INSTALL_STDERR_TAIL", "12000"))
 _UV_BIN = os.environ.get("AUTODS_UV_BIN", "uv")
 _PIP_EXTRA_INDEX_URL = os.environ.get("AUTODS_PIP_EXTRA_INDEX_URL", "").strip()
@@ -99,6 +100,7 @@ def _install_stream_event(event: dict[str, Any]) -> str:
 
 async def _stream_command_output(command: list[str], phase: str) -> AsyncIterator[dict[str, Any]]:
     started_at = time.monotonic()
+    last_output_at = started_at
     process = await asyncio.create_subprocess_exec(
         *command,
         stdout=asyncio.subprocess.PIPE,
@@ -107,7 +109,8 @@ async def _stream_command_output(command: list[str], phase: str) -> AsyncIterato
     )
     assert process.stdout is not None
     while True:
-        if time.monotonic() - started_at > _PIP_INSTALL_TIMEOUT_SEC:
+        now = time.monotonic()
+        if now - started_at > _PIP_INSTALL_TIMEOUT_SEC:
             process.kill()
             await process.wait()
             yield {"type": "error", "phase": phase, "message": "Installation timed out", "exit_code": None}
@@ -118,6 +121,9 @@ async def _stream_command_output(command: list[str], phase: str) -> AsyncIterato
         except TimeoutError:
             if process.returncode is not None:
                 break
+            if time.monotonic() - last_output_at >= _PIP_INSTALL_HEARTBEAT_SEC:
+                last_output_at = time.monotonic()
+                yield {"type": "heartbeat", "phase": phase}
             continue
         if not raw_line:
             if process.returncode is not None:
@@ -125,36 +131,9 @@ async def _stream_command_output(command: list[str], phase: str) -> AsyncIterato
             continue
         line = raw_line.decode(errors="replace").rstrip("\r\n")
         if line:
+            last_output_at = time.monotonic()
             yield {"type": "log", "phase": phase, "line": line}
     yield {"type": "command_done", "phase": phase, "exit_code": await process.wait()}
-
-
-def _run_async_coro_in_isolated_loop(coro_factory: Callable[[], Awaitable[_T]]) -> _T:
-    """Run a coroutine on a dedicated loop with explicit async cleanup."""
-    loop = asyncio.new_event_loop()
-    try:
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(coro_factory())
-    finally:
-        try:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            if hasattr(loop, "shutdown_default_executor"):
-                loop.run_until_complete(loop.shutdown_default_executor())
-        except Exception:
-            logger.debug("Failed to shut down pygrad worker event loop cleanly", exc_info=True)
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
-
-
-async def _run_pygrad_in_thread(coro_factory: Callable[[], Awaitable[_T]]) -> _T:
-    """Run pygrad coroutines away from the FastAPI event loop.
-
-    Some pygrad async functions currently perform synchronous network and Neo4j
-    work internally. Running them in a worker thread keeps API health checks and
-    other requests responsive while repository indexing is active.
-    """
-    return await run_in_threadpool(lambda: _run_async_coro_in_isolated_loop(coro_factory))
 
 
 class BootstrapResponse(BaseModel):
@@ -594,7 +573,14 @@ def create_app(
                 }
             )
 
-        return StreamingResponse(_events(), media_type="application/x-ndjson")
+        return StreamingResponse(
+            _events(),
+            media_type="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     def _artifacts_root(session: SessionMetadata) -> Path:
         return _workspace_for(session, create=False)
@@ -682,14 +668,7 @@ def create_app(
     @app.get("/api/datasets")
     async def list_datasets(request: Request):
         _require_principal(request)
-        indexed = {
-            item.name: _dataset_payload(item.name, "completed") for item in (await _run_pygrad_in_thread(pg.list) or [])
-        }
-        async with dataset_index_lock:
-            for repo_id, state in dataset_index_states.items():
-                if repo_id not in indexed or state["status"] != "completed":
-                    indexed[repo_id] = state
-        return list(indexed.values())
+        return [{"id": item.name, "name": item.name} for item in (await pg.list() or [])]
 
     @app.post("/api/datasets", status_code=202)
     async def add_dataset(request: Request, body: AddDatasetRequest):

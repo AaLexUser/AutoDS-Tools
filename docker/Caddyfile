@@ -5,14 +5,23 @@
 }
 
 :80 {
-	encode gzip zstd
-
 	basic_auth {
 		{$BASIC_AUTH_USERNAME} {$BASIC_AUTH_PASSWORD_HASH}
 	}
 
 	@backend path /api/* /health
-	reverse_proxy @backend autods-server:8000
+	@install_stream path /api/sessions/*/install/stream
 
+	# Keep install streams uncompressed so proxies do not buffer NDJSON chunks.
+	handle @install_stream {
+		reverse_proxy autods-server:8000
+	}
+
+	handle @backend {
+		encode gzip zstd
+		reverse_proxy autods-server:8000
+	}
+
+	encode gzip zstd
 	reverse_proxy autods-frontend:3000
 }

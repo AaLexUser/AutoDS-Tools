@@ -50,8 +50,24 @@ export type InstallLogEvent =
   | { type: 'command'; phase: string; elapsed_ms: number; command: string[] }
   | { type: 'phase'; phase: string; elapsed_ms: number }
   | { type: 'log'; phase: string; elapsed_ms: number; line: string }
+  | { type: 'heartbeat'; phase: string; elapsed_ms?: number }
   | { type: 'error'; phase?: string; elapsed_ms?: number; message?: string; exit_code?: number | null }
   | { type: 'done'; status: string; installed?: string[]; elapsed_ms?: number; message?: string }
+
+function installStreamConnectionError(cause: unknown): Error {
+  const message = cause instanceof Error ? cause.message.toLowerCase() : ''
+  if (
+    message === 'network error' ||
+    message === 'failed to fetch' ||
+    message.includes('network') ||
+    message.includes('load failed')
+  ) {
+    return new Error(
+      'Connection lost while installing. The server may still be working — wait a minute and retry, or check whether the package is already installed.'
+    )
+  }
+  return cause instanceof Error ? cause : new Error('Failed to install libraries. Please try again.')
+}
 
 interface ArtifactResponse {
   root: string
@@ -198,12 +214,17 @@ export const apiClient = {
   ) {
     await ensureBrowserBootstrap()
 
-    const response = await fetch(`${getApiBaseUrl()}/api/sessions/${sessionId}/install/stream`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ libraries }),
-    })
+    let response: Response
+    try {
+      response = await fetch(`${getApiBaseUrl()}/api/sessions/${sessionId}/install/stream`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ libraries }),
+      })
+    } catch (error) {
+      throw installStreamConnectionError(error)
+    }
 
     if (!response.ok || !response.body) {
       throw new Error(await response.text() || `Request failed with status ${response.status}`)
@@ -220,18 +241,22 @@ export const apiClient = {
       }
       onEvent(event)
     }
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) {
-        if (line.trim()) handleEvent(JSON.parse(line) as InstallLogEvent)
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (line.trim()) handleEvent(JSON.parse(line) as InstallLogEvent)
+        }
       }
+      buffer += decoder.decode()
+      if (buffer.trim()) handleEvent(JSON.parse(buffer) as InstallLogEvent)
+    } catch (error) {
+      throw installStreamConnectionError(error)
     }
-    buffer += decoder.decode()
-    if (buffer.trim()) handleEvent(JSON.parse(buffer) as InstallLogEvent)
     if (errorMessage) {
       throw new Error(errorMessage)
     }
