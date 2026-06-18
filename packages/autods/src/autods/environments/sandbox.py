@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+_PROCESS_GROUP_TERMINATE_GRACE_SECONDS = 5.0
+
 
 class SandboxError(RuntimeError):
     """Raised when the sandbox fails before producing a result."""
@@ -34,6 +36,31 @@ class SandboxResult:
     timed_out: bool = False
 
 
+def describe_exit_code(exit_code: int, *, timed_out: bool = False) -> str | None:
+    """Return a human-readable summary for non-zero subprocess exits."""
+    if timed_out:
+        return f"command timed out (exit code {exit_code})"
+    if exit_code == 0:
+        return None
+
+    if exit_code < 0:
+        try:
+            sig = signal.Signals(-exit_code)
+            return f"process terminated by signal {sig.name} ({exit_code})"
+        except (ValueError, AttributeError):
+            return f"process terminated by signal {-exit_code} ({exit_code})"
+
+    if exit_code > 128:
+        sig_num = exit_code - 128
+        try:
+            sig = signal.Signals(sig_num)
+            return f"process terminated by signal {sig.name} (exit code {exit_code})"
+        except (ValueError, AttributeError):
+            return f"process terminated by signal {sig_num} (exit code {exit_code})"
+
+    return f"process exited with code {exit_code}"
+
+
 class SandboxAdapter(Protocol):
     """Protocol implemented by platform-specific sandbox adapters."""
 
@@ -45,6 +72,7 @@ class SandboxAdapter(Protocol):
         env: Mapping[str, str] | None = None,
         timeout: float | None = None,
         with_escalated_permissions: bool = False,
+        input: str | bytes | None = None,
     ) -> SandboxResult:
         """
         Execute `command` inside the sandbox returning a `SandboxResult`.
@@ -90,6 +118,7 @@ class LocalSandboxAdapter(SandboxAdapter):
         env: Mapping[str, str] | None = None,
         timeout: float | None = None,
         with_escalated_permissions: bool = False,
+        input: str | bytes | None = None,
     ) -> SandboxResult:
         if not command:
             raise SandboxError("sandbox run requires at least one command argument")
@@ -101,17 +130,21 @@ class LocalSandboxAdapter(SandboxAdapter):
         start = time.perf_counter()
         process_kwargs: dict[str, object] = {}
         if os.name != "nt":
-            # Put the command in its own process group so a timeout kills the
-            # shell and every child it spawned. Killing only the shell can leave
-            # Python/joblib children alive with stdout/stderr pipes open, which
-            # makes communicate() hang forever.
-            process_kwargs["preexec_fn"] = os.setsid
+            # Use start_new_session instead of preexec_fn=setsid so macOS can
+            # spawn via posix_spawn from multi-threaded parents. Forking a child
+            # from a threaded server and then forking again inside ML libraries
+            # (joblib/torch) commonly crashes Python on macOS.
+            process_kwargs["start_new_session"] = True
+
+        stdin = asyncio.subprocess.PIPE if input is not None else None
+        input_bytes = input.encode("utf-8") if isinstance(input, str) else input
 
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                stdin=stdin,
                 cwd=str(cwd),
                 env=cmd_env,
                 **process_kwargs,
@@ -121,16 +154,13 @@ class LocalSandboxAdapter(SandboxAdapter):
 
         timed_out = False
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=timeout)
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                process.communicate(input=input_bytes),
+                timeout=timeout,
+            )
         except TimeoutError:
             timed_out = True
-            if os.name != "nt":
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            else:
-                process.kill()
+            await self._terminate_process_group(process)
             stdout_bytes, stderr_bytes = await process.communicate()
 
         duration = time.perf_counter() - start
@@ -149,3 +179,21 @@ class LocalSandboxAdapter(SandboxAdapter):
             timed_out=timed_out,
             duration_seconds=duration,
         )
+
+    async def _terminate_process_group(self, process: asyncio.subprocess.Process) -> None:
+        if os.name == "nt":
+            process.kill()
+            return
+
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+
+        try:
+            await asyncio.wait_for(process.wait(), timeout=_PROCESS_GROUP_TERMINATE_GRACE_SECONDS)
+        except TimeoutError:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass

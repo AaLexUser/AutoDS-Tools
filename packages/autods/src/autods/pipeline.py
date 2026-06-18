@@ -33,7 +33,7 @@ from autods.constants import (
     PRESENTER_REPORT_PATH,
     RESEARCHER_REPORT_PATH,
 )
-from autods.environments import JupyterExecutor, LocalSandboxAdapter, resolve_venv_env
+from autods.environments import LocalSandboxAdapter, resolve_venv_env
 from autods.tools import (
     create_libq_search_tool,
     create_read_tool,
@@ -95,7 +95,7 @@ class _UnrestrictedFileSearchMiddleware(FilesystemFileSearchMiddleware):
         return results
 
 
-TIME_OUT = 60 * 60 * 1
+TIME_OUT = 60 * 60 * 1 # 1h
 
 ANALYST_SYSTEM_PROMPT = """
 You are the Analyst stage in an AutoDS pipeline.
@@ -208,7 +208,7 @@ Goal:
 
 Rules:
 - use `run_shell` to inspect files and run shell workflows
-- use `run_python` for Python execution inside code.ipynb
+- use `run_python` for Python execution in the workspace
 - use `libq_search` when library behavior is unclear
 - before completing the task, use the `submit_solution` function.
 - if tool output includes debugger analysis, incorporate it and continue
@@ -406,7 +406,6 @@ def build_pipeline(project_path: str, *, checkpointer: None | bool | BaseCheckpo
     venv_env = resolve_venv_env(resolved_path)
 
     sandbox = LocalSandboxAdapter(extra_env=venv_env)
-    executor = JupyterExecutor(workspace=resolved_path, env_vars=venv_env)
 
     lm_client = init_chat_model(
         model=_required_env("AUTODS_MODEL"),
@@ -420,7 +419,11 @@ def build_pipeline(project_path: str, *, checkpointer: None | bool | BaseCheckpo
     )
 
     shell_tool = create_run_shell_tool(sandbox=sandbox, project_path=resolved_path, timeout=TIME_OUT)
-    python_tool = create_run_python_tool(executor=executor, timeout=TIME_OUT)
+    python_tool = create_run_python_tool(
+        sandbox=sandbox,
+        project_path=resolved_path,
+        timeout=TIME_OUT,
+    )
     libq_tool = create_libq_search_tool()
     read_tool = create_read_tool(project_path=resolved_path)
 
