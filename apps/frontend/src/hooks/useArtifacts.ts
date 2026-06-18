@@ -22,6 +22,27 @@ export function useFileContent(sessionId: string | null, filePath: string | null
   })
 }
 
+export function useUploadFile() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      sessionId,
+      file,
+      onProgress,
+      signal,
+    }: {
+      sessionId: string
+      file: File
+      onProgress?: (percent: number) => void
+      signal?: AbortSignal
+    }) => apiClient.uploadFile(sessionId, file, onProgress, signal),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['artifacts', variables.sessionId] })
+    },
+  })
+}
+
 export function useUploadFiles() {
   const queryClient = useQueryClient()
 

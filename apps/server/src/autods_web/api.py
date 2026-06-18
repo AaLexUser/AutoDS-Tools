@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import time
+import uuid
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -68,6 +69,76 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     ".py",
     ".ipynb",
 }
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+_MAX_UPLOAD_BYTES = max(1, int(os.environ.get("AUTODS_MAX_UPLOAD_BYTES", str(100 * 1024 * 1024 * 1024))))
+_MAX_WORKSPACE_BYTES = max(1, int(os.environ.get("AUTODS_MAX_WORKSPACE_BYTES", str(100 * 1024 * 1024 * 1024))))
+_UPLOAD_CONCURRENCY = max(1, int(os.environ.get("AUTODS_UPLOAD_CONCURRENCY", "3")))
+_UPLOADS_DIRNAME = ".uploads"
+_upload_semaphore: asyncio.Semaphore | None = None
+_upload_session_locks: dict[str, asyncio.Lock] = {}
+
+
+def _upload_semaphore_limit() -> asyncio.Semaphore:
+    global _upload_semaphore
+    if _upload_semaphore is None:
+        _upload_semaphore = asyncio.Semaphore(_UPLOAD_CONCURRENCY)
+    return _upload_semaphore
+
+
+def _session_upload_lock(session_id: str) -> asyncio.Lock:
+    lock = _upload_session_locks.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _upload_session_locks[session_id] = lock
+    return lock
+
+
+def _format_bytes(num: int) -> str:
+    if num < 1024:
+        return f"{num} B"
+    size = float(num)
+    for unit in ("KB", "MB", "GB", "TB"):
+        size /= 1024
+        if size < 1024 or unit == "TB":
+            return f"{size:.1f} {unit}"
+    return f"{num} B"
+
+
+async def _save_upload_file(
+    item: UploadFile,
+    destination: Path,
+    uploads_dir: Path,
+    *,
+    workspace_used: int,
+    replace_bytes: int,
+) -> int:
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = uploads_dir / f"{uuid.uuid4().hex}.part"
+    size = 0
+    try:
+        with temp_path.open("wb") as handle:
+            while chunk := await item.read(_UPLOAD_CHUNK_BYTES):
+                size += len(chunk)
+                if size > _MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File exceeds maximum upload size ({_format_bytes(_MAX_UPLOAD_BYTES)})",
+                    )
+                projected_workspace = workspace_used - replace_bytes + size
+                if projected_workspace > _MAX_WORKSPACE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            "Upload would exceed workspace storage limit "
+                            f"({_format_bytes(_MAX_WORKSPACE_BYTES)})"
+                        ),
+                    )
+                handle.write(chunk)
+        temp_path.replace(destination)
+        return size
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
 
 
 def _venv_python_path(venv_path: Path) -> Path:
@@ -463,15 +534,37 @@ def create_app(
         principal_id = _require_principal(request)
         session = _get_owned_session(principal_id, session_id)
         workspace = _workspace_for(session)
+        uploads_dir = workspace / _UPLOADS_DIRNAME
         uploaded_paths: list[str] = []
-        for item in files:
-            filename = Path(item.filename or "").name
-            ext = Path(filename).suffix.lower()
-            if ext not in ALLOWED_UPLOAD_EXTENSIONS:
-                raise HTTPException(status_code=400, detail=f"File type '{ext}' not allowed")
-            (workspace / filename).write_bytes(await item.read())
-            uploaded_paths.append(filename)
-        autods.refresh_folder_size(principal_id, session.id)
+
+        async with _upload_semaphore_limit():
+            async with _session_upload_lock(session.id):
+                for item in files:
+                    filename = Path(item.filename or "").name
+                    if not filename:
+                        raise HTTPException(status_code=400, detail="Uploaded file must have a filename")
+                    ext = Path(filename).suffix.lower()
+                    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+                        raise HTTPException(status_code=400, detail=f"File type '{ext}' not allowed")
+                    destination = workspace / filename
+                    replace_bytes = destination.stat().st_size if destination.exists() else 0
+                    current_session = autods.get_session(principal_id, session.id)
+                    workspace_used = current_session.folder_size
+                    if workspace_used - replace_bytes >= _MAX_WORKSPACE_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"Workspace storage limit reached ({_format_bytes(_MAX_WORKSPACE_BYTES)})",
+                        )
+                    bytes_written = await _save_upload_file(
+                        item,
+                        destination,
+                        uploads_dir,
+                        workspace_used=workspace_used,
+                        replace_bytes=replace_bytes,
+                    )
+                    autods.adjust_folder_size(principal_id, session.id, bytes_written - replace_bytes)
+                    uploaded_paths.append(filename)
+
         return {"paths": uploaded_paths}
 
     @app.post("/api/sessions/{session_id}/install")

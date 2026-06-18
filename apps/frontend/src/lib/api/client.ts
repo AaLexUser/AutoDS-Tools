@@ -126,6 +126,97 @@ async function fetchJson<T>(input: string, init?: RequestInit, isUnauthorizedRet
   return response.json() as Promise<T>
 }
 
+function parseUploadError(responseText: string, status: number): string {
+  if (!responseText) {
+    return `Upload failed with status ${status}`
+  }
+  try {
+    const payload = JSON.parse(responseText) as { detail?: string | Array<{ msg?: string }> }
+    if (typeof payload.detail === 'string') {
+      return payload.detail
+    }
+    if (Array.isArray(payload.detail)) {
+      return payload.detail.map(item => item.msg).filter(Boolean).join(', ') || responseText
+    }
+  } catch {
+    // Plain-text error body
+  }
+  return responseText
+}
+
+async function uploadFileOnce(
+  sessionId: string,
+  file: File,
+  onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
+): Promise<{ paths: string[] }> {
+  await ensureBrowserBootstrap()
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    const formData = new FormData()
+    formData.append('files', file)
+
+    const abortUpload = () => {
+      xhr.abort()
+    }
+
+    if (signal) {
+      if (signal.aborted) {
+        reject(new DOMException('Upload aborted', 'AbortError'))
+        return
+      }
+      signal.addEventListener('abort', abortUpload, { once: true })
+    }
+
+    xhr.upload.addEventListener('progress', event => {
+      if (!onProgress || !event.lengthComputable || event.total <= 0) return
+      onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+    })
+
+    xhr.addEventListener('load', () => {
+      if (signal) {
+        signal.removeEventListener('abort', abortUpload)
+      }
+
+      if (xhr.status === 401) {
+        reject(Object.assign(new Error('Unauthorized'), { status: 401 }))
+        return
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(100)
+        try {
+          resolve(JSON.parse(xhr.responseText) as { paths: string[] })
+        } catch {
+          reject(new Error('Invalid upload response'))
+        }
+        return
+      }
+
+      reject(new Error(parseUploadError(xhr.responseText, xhr.status)))
+    })
+
+    xhr.addEventListener('error', () => {
+      if (signal) {
+        signal.removeEventListener('abort', abortUpload)
+      }
+      reject(new Error('Network error while uploading file'))
+    })
+
+    xhr.addEventListener('abort', () => {
+      if (signal) {
+        signal.removeEventListener('abort', abortUpload)
+      }
+      reject(new DOMException('Upload aborted', 'AbortError'))
+    })
+
+    xhr.open('POST', `${getApiBaseUrl()}/api/sessions/${sessionId}/dataset`)
+    xhr.withCredentials = true
+    xhr.send(formData)
+  })
+}
+
 function sortSessions(sessions: Session[]) {
   return [...sessions].sort(
     (left, right) =>
@@ -176,25 +267,35 @@ export const apiClient = {
     })
   },
 
+  async uploadFile(
+    sessionId: string,
+    file: File,
+    onProgress?: (percent: number) => void,
+    signal?: AbortSignal,
+    isUnauthorizedRetry = false,
+  ): Promise<{ paths: string[] }> {
+    try {
+      return await uploadFileOnce(sessionId, file, onProgress, signal)
+    } catch (error) {
+      const isUnauthorized =
+        error instanceof Error &&
+        ('status' in error && error.status === 401)
+      if (isUnauthorized && !isUnauthorizedRetry) {
+        bootstrapPromise = null
+        await ensureBrowserBootstrap()
+        return this.uploadFile(sessionId, file, onProgress, signal, true)
+      }
+      throw error
+    }
+  },
+
   async uploadFiles(sessionId: string, files: File[]) {
-    const formData = new FormData()
+    const paths: string[] = []
     for (const file of files) {
-      formData.append('files', file)
+      const result = await this.uploadFile(sessionId, file)
+      paths.push(...result.paths)
     }
-
-    await ensureBrowserBootstrap()
-
-    const response = await fetch(`${getApiBaseUrl()}/api/sessions/${sessionId}/dataset`, {
-      method: 'POST',
-      credentials: 'include',
-      body: formData,
-    })
-
-    if (!response.ok) {
-      throw new Error(await response.text())
-    }
-
-    return response.json() as Promise<{ paths: string[] }>
+    return { paths }
   },
 
   async installLibraries(sessionId: string, libraries: string[]) {

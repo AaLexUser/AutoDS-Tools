@@ -452,6 +452,11 @@ class AutoDS:
         workspace = service.workspace_path(session_id, create=False)
         return service.update_folder_size(session_id, _get_folder_size(workspace))
 
+    def adjust_folder_size(self, principal_id: str, session_id: str, delta: int) -> SessionMetadata:
+        service = self._service(principal_id)
+        session = service.get_session(session_id)
+        return service.update_folder_size(session_id, max(0, session.folder_size + delta))
+
     def _refresh_folder_size_if_exists(self, principal_id: str, session_id: str) -> None:
         try:
             self.refresh_folder_size(principal_id, session_id)

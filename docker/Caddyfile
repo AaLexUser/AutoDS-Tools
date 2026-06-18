@@ -11,6 +11,18 @@
 
 	@backend path /api/* /health
 	@install_stream path /api/sessions/*/install/stream
+	@uploads path /api/sessions/*/dataset
+
+	# Long-running file uploads: avoid proxy timeouts and response compression.
+	handle @uploads {
+		reverse_proxy autods-server:8000 {
+			transport http {
+				read_timeout 24h
+				write_timeout 24h
+				response_header_timeout 24h
+			}
+		}
+	}
 
 	# Keep install streams uncompressed so proxies do not buffer NDJSON chunks.
 	handle @install_stream {
