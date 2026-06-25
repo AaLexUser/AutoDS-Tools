@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import time
+import uuid
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +18,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, TypeVar
 from fastapi import (
     FastAPI,
     File,
+    Form,
     HTTPException,
     Request,
     Response,
@@ -49,6 +51,7 @@ HEADER_PRINCIPAL_NAME = "X-AutoDS-Principal"
 ARTIFACT_TREE_MAX_DEPTH = int(os.environ.get("ARTIFACT_TREE_MAX_DEPTH", "5"))
 ARTIFACT_TREE_MAX_ITEMS = int(os.environ.get("ARTIFACT_TREE_MAX_ITEMS", "10000"))
 _PIP_INSTALL_TIMEOUT_SEC = max(1, int(os.environ.get("AUTODS_PIP_INSTALL_TIMEOUT_SEC", "3600")))
+_PIP_INSTALL_HEARTBEAT_SEC = max(1, int(os.environ.get("AUTODS_PIP_INSTALL_HEARTBEAT_SEC", "2")))
 _PIP_INSTALL_STDERR_TAIL = int(os.environ.get("AUTODS_PIP_INSTALL_STDERR_TAIL", "12000"))
 _UV_BIN = os.environ.get("AUTODS_UV_BIN", "uv")
 _PIP_EXTRA_INDEX_URL = os.environ.get("AUTODS_PIP_EXTRA_INDEX_URL", "").strip()
@@ -67,6 +70,125 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     ".py",
     ".ipynb",
 }
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+_MAX_UPLOAD_BYTES = max(1, int(os.environ.get("AUTODS_MAX_UPLOAD_BYTES", str(100 * 1024 * 1024 * 1024))))
+_MAX_WORKSPACE_BYTES = max(1, int(os.environ.get("AUTODS_MAX_WORKSPACE_BYTES", str(100 * 1024 * 1024 * 1024))))
+_UPLOAD_CONCURRENCY = max(1, int(os.environ.get("AUTODS_UPLOAD_CONCURRENCY", "3")))
+_UPLOADS_DIRNAME = ".uploads"
+_upload_semaphore: asyncio.Semaphore | None = None
+_upload_session_locks: dict[str, asyncio.Lock] = {}
+
+
+def _upload_semaphore_limit() -> asyncio.Semaphore:
+    global _upload_semaphore
+    if _upload_semaphore is None:
+        _upload_semaphore = asyncio.Semaphore(_UPLOAD_CONCURRENCY)
+    return _upload_semaphore
+
+
+def _session_upload_lock(session_id: str) -> asyncio.Lock:
+    lock = _upload_session_locks.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _upload_session_locks[session_id] = lock
+    return lock
+
+
+def _format_bytes(num: int) -> str:
+    if num < 1024:
+        return f"{num} B"
+    size = float(num)
+    for unit in ("KB", "MB", "GB", "TB"):
+        size /= 1024
+        if size < 1024 or unit == "TB":
+            return f"{size:.1f} {unit}"
+    return f"{num} B"
+
+
+def _validate_upload_filename(filename: str) -> str:
+    safe_name = Path(filename).name
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="Uploaded file must have a filename")
+    ext = Path(safe_name).suffix.lower()
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File type '{ext}' not allowed")
+    return safe_name
+
+
+def _part_path_for_filename(uploads_dir: Path, filename: str) -> Path:
+    digest = hashlib.sha256(filename.encode()).hexdigest()[:32]
+    return uploads_dir / f"{digest}.part"
+
+
+def _write_upload_chunk_at_offset(part_path: Path, offset: int, data: bytes) -> None:
+    part_path.parent.mkdir(parents=True, exist_ok=True)
+    if offset == 0:
+        with part_path.open("wb") as handle:
+            handle.write(data)
+        return
+    with part_path.open("r+b") as handle:
+        handle.seek(offset)
+        handle.write(data)
+
+
+async def _stream_upload_to_temp(
+    item: UploadFile,
+    temp_path: Path,
+    *,
+    workspace_used: int,
+    replace_bytes: int,
+) -> int:
+    temp_path.parent.mkdir(parents=True, exist_ok=True)
+    size = 0
+    try:
+        with temp_path.open("wb") as handle:
+            while chunk := await item.read(_UPLOAD_CHUNK_BYTES):
+                size += len(chunk)
+                if size > _MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File exceeds maximum upload size ({_format_bytes(_MAX_UPLOAD_BYTES)})",
+                    )
+                projected_workspace = workspace_used - replace_bytes + size
+                if projected_workspace > _MAX_WORKSPACE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            "Upload would exceed workspace storage limit "
+                            f"({_format_bytes(_MAX_WORKSPACE_BYTES)})"
+                        ),
+                    )
+                handle.write(chunk)
+        return size
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
+async def _finalize_upload(
+    autods: AutoDS,
+    principal_id: str,
+    session_id: str,
+    temp_path: Path,
+    destination: Path,
+    *,
+    bytes_written: int,
+) -> None:
+    async with _session_upload_lock(session_id):
+        current_session = autods.get_session(principal_id, session_id)
+        workspace_used = current_session.folder_size
+        replace_bytes = destination.stat().st_size if destination.exists() else 0
+        if workspace_used - replace_bytes + bytes_written > _MAX_WORKSPACE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Workspace storage limit reached ({_format_bytes(_MAX_WORKSPACE_BYTES)})",
+            )
+        await run_in_threadpool(_commit_upload, temp_path, destination)
+        autods.adjust_folder_size(principal_id, session_id, bytes_written - replace_bytes)
+
+
+def _commit_upload(temp_path: Path, destination: Path) -> None:
+    temp_path.replace(destination)
 
 
 def _venv_python_path(venv_path: Path) -> Path:
@@ -99,6 +221,7 @@ def _install_stream_event(event: dict[str, Any]) -> str:
 
 async def _stream_command_output(command: list[str], phase: str) -> AsyncIterator[dict[str, Any]]:
     started_at = time.monotonic()
+    last_output_at = started_at
     process = await asyncio.create_subprocess_exec(
         *command,
         stdout=asyncio.subprocess.PIPE,
@@ -107,7 +230,8 @@ async def _stream_command_output(command: list[str], phase: str) -> AsyncIterato
     )
     assert process.stdout is not None
     while True:
-        if time.monotonic() - started_at > _PIP_INSTALL_TIMEOUT_SEC:
+        now = time.monotonic()
+        if now - started_at > _PIP_INSTALL_TIMEOUT_SEC:
             process.kill()
             await process.wait()
             yield {"type": "error", "phase": phase, "message": "Installation timed out", "exit_code": None}
@@ -118,6 +242,9 @@ async def _stream_command_output(command: list[str], phase: str) -> AsyncIterato
         except TimeoutError:
             if process.returncode is not None:
                 break
+            if time.monotonic() - last_output_at >= _PIP_INSTALL_HEARTBEAT_SEC:
+                last_output_at = time.monotonic()
+                yield {"type": "heartbeat", "phase": phase}
             continue
         if not raw_line:
             if process.returncode is not None:
@@ -125,36 +252,9 @@ async def _stream_command_output(command: list[str], phase: str) -> AsyncIterato
             continue
         line = raw_line.decode(errors="replace").rstrip("\r\n")
         if line:
+            last_output_at = time.monotonic()
             yield {"type": "log", "phase": phase, "line": line}
     yield {"type": "command_done", "phase": phase, "exit_code": await process.wait()}
-
-
-def _run_async_coro_in_isolated_loop(coro_factory: Callable[[], Awaitable[_T]]) -> _T:
-    """Run a coroutine on a dedicated loop with explicit async cleanup."""
-    loop = asyncio.new_event_loop()
-    try:
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(coro_factory())
-    finally:
-        try:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            if hasattr(loop, "shutdown_default_executor"):
-                loop.run_until_complete(loop.shutdown_default_executor())
-        except Exception:
-            logger.debug("Failed to shut down pygrad worker event loop cleanly", exc_info=True)
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
-
-
-async def _run_pygrad_in_thread(coro_factory: Callable[[], Awaitable[_T]]) -> _T:
-    """Run pygrad coroutines away from the FastAPI event loop.
-
-    Some pygrad async functions currently perform synchronous network and Neo4j
-    work internally. Running them in a worker thread keeps API health checks and
-    other requests responsive while repository indexing is active.
-    """
-    return await run_in_threadpool(lambda: _run_async_coro_in_isolated_loop(coro_factory))
 
 
 class BootstrapResponse(BaseModel):
@@ -484,16 +584,119 @@ def create_app(
         principal_id = _require_principal(request)
         session = _get_owned_session(principal_id, session_id)
         workspace = _workspace_for(session)
+        uploads_dir = workspace / _UPLOADS_DIRNAME
         uploaded_paths: list[str] = []
-        for item in files:
-            filename = Path(item.filename or "").name
-            ext = Path(filename).suffix.lower()
-            if ext not in ALLOWED_UPLOAD_EXTENSIONS:
-                raise HTTPException(status_code=400, detail=f"File type '{ext}' not allowed")
-            (workspace / filename).write_bytes(await item.read())
-            uploaded_paths.append(filename)
-        autods.refresh_folder_size(principal_id, session.id)
+
+        async with _upload_semaphore_limit():
+            for item in files:
+                filename = _validate_upload_filename(item.filename or "")
+                destination = workspace / filename
+                replace_bytes = destination.stat().st_size if destination.exists() else 0
+                current_session = autods.get_session(principal_id, session.id)
+                workspace_used = current_session.folder_size
+                if workspace_used - replace_bytes >= _MAX_WORKSPACE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Workspace storage limit reached ({_format_bytes(_MAX_WORKSPACE_BYTES)})",
+                    )
+
+                temp_path = uploads_dir / f"{uuid.uuid4().hex}.part"
+                bytes_written = await _stream_upload_to_temp(
+                    item,
+                    temp_path,
+                    workspace_used=workspace_used,
+                    replace_bytes=replace_bytes,
+                )
+                try:
+                    await _finalize_upload(
+                        autods,
+                        principal_id,
+                        session.id,
+                        temp_path,
+                        destination,
+                        bytes_written=bytes_written,
+                    )
+                except Exception:
+                    temp_path.unlink(missing_ok=True)
+                    raise
+
+                uploaded_paths.append(filename)
+
         return {"paths": uploaded_paths}
+
+    @app.post("/api/sessions/{session_id}/dataset/chunk")
+    async def upload_dataset_chunk(
+        request: Request,
+        session_id: str,
+        filename: str = Form(...),
+        offset: int = Form(...),
+        total_size: int = Form(...),
+        chunk: UploadFile = File(...),
+    ):
+        if offset < 0 or total_size < 1:
+            raise HTTPException(status_code=400, detail="Invalid upload offset or size")
+        if total_size > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File exceeds maximum upload size ({_format_bytes(_MAX_UPLOAD_BYTES)})",
+            )
+
+        principal_id = _require_principal(request)
+        session = _get_owned_session(principal_id, session_id)
+        workspace = _workspace_for(session)
+        uploads_dir = workspace / _UPLOADS_DIRNAME
+        safe_filename = _validate_upload_filename(filename)
+        destination = workspace / safe_filename
+        replace_bytes = destination.stat().st_size if destination.exists() else 0
+        current_session = autods.get_session(principal_id, session.id)
+        workspace_used = current_session.folder_size
+        if workspace_used - replace_bytes + total_size > _MAX_WORKSPACE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Workspace storage limit reached ({_format_bytes(_MAX_WORKSPACE_BYTES)})",
+            )
+
+        part_path = _part_path_for_filename(uploads_dir, safe_filename)
+        async with _upload_semaphore_limit():
+            chunk_data = await chunk.read()
+            if offset + len(chunk_data) > total_size:
+                raise HTTPException(status_code=400, detail="Chunk exceeds declared file size")
+            if not chunk_data and total_size > 0:
+                raise HTTPException(status_code=400, detail="Empty upload chunk")
+
+            try:
+                await run_in_threadpool(_write_upload_chunk_at_offset, part_path, offset, chunk_data)
+            except Exception:
+                if offset == 0:
+                    part_path.unlink(missing_ok=True)
+                raise
+
+            received = offset + len(chunk_data)
+            if received < total_size:
+                return {"complete": False, "received": received, "total_size": total_size}
+
+            actual_size = await run_in_threadpool(lambda path=part_path: path.stat().st_size)
+            if actual_size != total_size:
+                part_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Incomplete upload: received {_format_bytes(actual_size)} of {_format_bytes(total_size)}",
+                )
+
+            try:
+                await _finalize_upload(
+                    autods,
+                    principal_id,
+                    session.id,
+                    part_path,
+                    destination,
+                    bytes_written=total_size,
+                )
+            except Exception:
+                part_path.unlink(missing_ok=True)
+                raise
+
+        return {"complete": True, "received": total_size, "paths": [safe_filename]}
 
     @app.post("/api/sessions/{session_id}/install")
     async def install_libraries(request: Request, session_id: str, body: InstallLibrariesRequest):
@@ -594,7 +797,14 @@ def create_app(
                 }
             )
 
-        return StreamingResponse(_events(), media_type="application/x-ndjson")
+        return StreamingResponse(
+            _events(),
+            media_type="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     def _artifacts_root(session: SessionMetadata) -> Path:
         return _workspace_for(session, create=False)
@@ -682,14 +892,7 @@ def create_app(
     @app.get("/api/datasets")
     async def list_datasets(request: Request):
         _require_principal(request)
-        indexed = {
-            item.name: _dataset_payload(item.name, "completed") for item in (await _run_pygrad_in_thread(pg.list) or [])
-        }
-        async with dataset_index_lock:
-            for repo_id, state in dataset_index_states.items():
-                if repo_id not in indexed or state["status"] != "completed":
-                    indexed[repo_id] = state
-        return list(indexed.values())
+        return [{"id": item.name, "name": item.name} for item in (await pg.list() or [])]
 
     @app.post("/api/datasets", status_code=202)
     async def add_dataset(request: Request, body: AddDatasetRequest):

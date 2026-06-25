@@ -7,8 +7,7 @@ from typing import Iterable
 from langchain.tools import tool
 
 import pygrad as pg
-from autods.environments.jupyter import JupyterExecutor
-from autods.environments.sandbox import LocalSandboxAdapter, SandboxResult
+from autods.environments.sandbox import LocalSandboxAdapter, SandboxResult, describe_exit_code
 
 MODEL_FORMAT_MAX_BYTES = 10 * 1024
 MODEL_FORMAT_MAX_LINES = 256
@@ -59,20 +58,15 @@ def _truncate_output(content: str) -> str:
 
 def _format_exec_output(result: SandboxResult) -> str:
     combined = _format_streams(result.stdout, result.stderr)
-    if result.timed_out:
+    exit_summary = describe_exit_code(result.exit_code, timed_out=result.timed_out)
+    if exit_summary:
+        combined = f"{exit_summary}\n{combined}".strip() if combined else exit_summary
+    elif result.timed_out:
         combined = f"command timed out after {result.duration_seconds:.1f} seconds\n{combined}".strip()
     return _truncate_output(combined)
 
 
-def _format_python_output(message: str, image_count: int) -> str:
-    parts: list[str] = []
-    stripped = message.strip()
-    if stripped:
-        parts.append(stripped)
-    if image_count:
-        suffix = "s" if image_count != 1 else ""
-        parts.append(f"[image output omitted: {image_count} image{suffix}]")
-    return "\n".join(parts).strip() or "Notebook cell executed with no output."
+_RUN_PYTHON_PREAMBLE = "import faulthandler\nfaulthandler.enable()\n"
 
 
 def _workspace_root(project_path: Path) -> Path:
@@ -162,16 +156,24 @@ def create_run_shell_tool(
 
 def create_run_python_tool(
     *,
-    executor: JupyterExecutor,
+    sandbox: LocalSandboxAdapter,
+    project_path: Path,
     timeout: float | None = None,
 ):
     @tool("run_python")
     async def run_python(code: str) -> str:
-        """Execute Python code in the shared notebook workspace."""
-        observation = await executor.run(code=code, timeout=timeout)
-        if not observation.is_success:
-            raise RuntimeError(observation.message or "Python execution failed.")
-        return _format_python_output(observation.message, len(observation.base64_images or []))
+        """Execute Python code in the project workspace."""
+        normalized_code = code if code.endswith("\n") else f"{code}\n"
+        result = await sandbox.run(
+            ["python", "-u", "-"],
+            cwd=project_path,
+            timeout=timeout,
+            input=f"{_RUN_PYTHON_PREAMBLE}{normalized_code}",
+        )
+        formatted = _format_exec_output(result)
+        if result.exit_code != 0:
+            raise RuntimeError(formatted)
+        return formatted
 
     return run_python
 
