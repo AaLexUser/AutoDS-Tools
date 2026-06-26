@@ -110,41 +110,41 @@ export function useAgentWebSocket(sessionId: string | null) {
 
         switch (msg.type) {
           case 'assistant_text_delta': {
-            // Get fresh state to check last message (avoid stale closure)
+            const delta = typeof msg.data === 'string' ? msg.data : ''
             const currentMessages = store.messages
             const lastMsg = currentMessages[currentMessages.length - 1]
+            const incomingId =
+              msg.message_id ||
+              (lastMsg?.role === 'assistant' && lastMsg.isStreaming
+                ? lastMsg.id
+                : `msg-${Date.now()}`)
 
-            // Determine the message ID to use
-            const incomingId = msg.message_id ||
-              (lastMsg?.role === 'assistant' && lastMsg.isStreaming ? lastMsg.id : `msg-${Date.now()}`)
+            const existingAssistant = [...currentMessages]
+              .reverse()
+              .find(message => message.id === incomingId && message.role === 'assistant')
 
-            // Check if we need to start a new message
-            const isNewMessage =
-              !lastMsg ||
-              lastMsg.role !== 'assistant' ||
-              !lastMsg.isStreaming ||
-              lastMsg.id !== incomingId
-
-            if (isNewMessage) {
-              // Finalize previous message if streaming
-              if (lastMsg?.isStreaming) {
-                store.updateLastMessage({ isStreaming: false })
-              }
-              // Start new message with the LLM's message_id
-              const newMessage: Message = {
-                id: incomingId,
-                role: 'assistant',
-                content: typeof msg.data === 'string' ? msg.data : '',
-                timestamp: new Date(msg.timestamp),
-                isStreaming: true,
-              }
-              store.addMessage(newMessage)
+            if (existingAssistant?.isStreaming) {
+              store.updateMessage(incomingId, {
+                content: existingAssistant.content + delta,
+              })
               store.setStreaming(true)
               store.setStatus('streaming')
-            } else {
-              // Append to existing streaming message
-              store.appendToLastMessage(typeof msg.data === 'string' ? msg.data : '')
+              break
             }
+
+            if (lastMsg?.isStreaming) {
+              store.updateLastMessage({ isStreaming: false })
+            }
+
+            store.addMessage({
+              id: incomingId,
+              role: 'assistant',
+              content: delta,
+              timestamp: new Date(msg.timestamp),
+              isStreaming: true,
+            })
+            store.setStreaming(true)
+            store.setStatus('streaming')
             break
           }
 

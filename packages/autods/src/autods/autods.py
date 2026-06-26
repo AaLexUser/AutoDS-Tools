@@ -211,6 +211,7 @@ class _TranscriptRecorder:
         self.on_event = on_event
         self.current_message_id: str | None = None
         self.current_assistant_chunks: list[str] = []
+        self.finalized_assistant_ids: set[str] = set()
         self.started_tool_calls: set[str] = set()
         self.active_tool_calls: dict[str, dict[str, Any]] = {}
         self.tool_call_ids_by_index: dict[int, str] = {}
@@ -244,9 +245,21 @@ class _TranscriptRecorder:
                 )
             )
 
+    def _allocate_assistant_message_id(self, candidate: str) -> str:
+        if candidate not in self.finalized_assistant_ids:
+            return candidate
+        suffix = 2
+        while True:
+            unique_id = f"{candidate}-{suffix}"
+            if unique_id not in self.finalized_assistant_ids:
+                return unique_id
+            suffix += 1
+
     def finalize_assistant(self) -> None:
         if not self.current_assistant_chunks:
             return
+        if self.current_message_id is not None:
+            self.finalized_assistant_ids.add(self.current_message_id)
         self.service.upsert_transcript_message(
             self.session.id,
             TranscriptMessage(
@@ -321,6 +334,8 @@ class _TranscriptRecorder:
         )
         if self.current_message_id and incoming_id != self.current_message_id:
             self.finalize_assistant()
+        if self.current_message_id is None:
+            incoming_id = self._allocate_assistant_message_id(incoming_id)
         self.current_message_id = incoming_id
 
         token = str(message.content or "")

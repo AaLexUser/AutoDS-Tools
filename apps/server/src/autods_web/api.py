@@ -13,7 +13,7 @@ import uuid
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable, TypeVar
+from typing import Any, AsyncIterator, TypeVar
 
 from fastapi import (
     FastAPI,
@@ -153,10 +153,7 @@ async def _stream_upload_to_temp(
                 if projected_workspace > _MAX_WORKSPACE_BYTES:
                     raise HTTPException(
                         status_code=413,
-                        detail=(
-                            "Upload would exceed workspace storage limit "
-                            f"({_format_bytes(_MAX_WORKSPACE_BYTES)})"
-                        ),
+                        detail=(f"Upload would exceed workspace storage limit ({_format_bytes(_MAX_WORKSPACE_BYTES)})"),
                     )
                 handle.write(chunk)
         return size
@@ -365,17 +362,32 @@ class WebSocketManager:
             self._deleting_sessions.discard(session_id)
 
 
+def _unique_transcript_message_id(
+    message_id: str | None,
+    role: str,
+    index: int,
+    seen_ids: dict[str, int],
+) -> str:
+    base_id = message_id or f"{role}-{index}"
+    usage_count = seen_ids.get(base_id, 0)
+    seen_ids[base_id] = usage_count + 1
+    if usage_count == 0:
+        return base_id
+    return f"{base_id}-{usage_count + 1}"
+
+
 def _build_transcript_response(
     session_id: str,
     status: SessionStatus,
     messages: list[TranscriptMessage],
 ) -> TranscriptResponse:
+    seen_ids: dict[str, int] = {}
     return TranscriptResponse(
         session_id=session_id,
         status=status,
         messages=[
             {
-                "id": message.message_id or f"{message.role}-{index}",
+                "id": _unique_transcript_message_id(message.message_id, message.role, index, seen_ids),
                 "role": message.role,
                 "content": message.content,
                 "timestamp": message.timestamp.isoformat(),
