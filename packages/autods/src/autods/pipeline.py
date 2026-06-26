@@ -44,6 +44,13 @@ from autods.tools import (
 )
 
 
+def env_bool(name: str, *, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class _UnrestrictedFileSearchMiddleware(FilesystemFileSearchMiddleware):
     """FilesystemFileSearchMiddleware that can search inside hidden/ignored dirs"""
 
@@ -329,7 +336,7 @@ def create_inject_reports_middleware(project_path: Path):
     return inject_reports_middleware
 
 
-def create_tool_error_middleware(debugger: CompiledStateGraph):
+def create_tool_error_middleware(debugger: CompiledStateGraph | None = None):
     @wrap_tool_call
     async def tool_error_middleware(
         request: ToolCallRequest,
@@ -338,7 +345,7 @@ def create_tool_error_middleware(debugger: CompiledStateGraph):
         try:
             return await handler(request)
         except Exception as e:
-            if request.tool and request.tool.name == "run_python":
+            if request.tool and request.tool.name == "run_python" and debugger:
                 message = f"INPUT:\n\n{request.tool}\n\n---\n\nOUTPUT:\n\n{e}"
                 debugger_response = await debugger.ainvoke({"messages": [{"role": "user", "content": f"{message}"}]})
                 debugger_messages = debugger_response.get("messages", [AIMessage(content="")])
@@ -424,97 +431,106 @@ def build_pipeline(project_path: str, *, checkpointer: None | bool | BaseCheckpo
         project_path=resolved_path,
         timeout=TIME_OUT,
     )
-    libq_tool = create_libq_search_tool()
     read_tool = create_read_tool(project_path=resolved_path)
-
+    
     report_path_dict = resolve_report_pathes(resolved_path)
-
+    solution_path = resolved_path / "solution.py"
+    
+    agent2tools = {
+        "debugger": [read_tool],
+        "analyst": [shell_tool, python_tool, create_submit_report_tool(report_path=report_path_dict["analyst"])],
+        "researcher": [create_submit_report_tool(report_path=report_path_dict["researcher"])],
+        "manager": [create_submit_report_tool(report_path=report_path_dict["manager"])],
+        "coder": [shell_tool, python_tool, create_submit_solution_tool(solution_path=solution_path)],
+        "presenter": [shell_tool,create_submit_report_tool(report_path=report_path_dict["presenter"])]
+    }
+    
+    if not env_bool("LIBQ_DISABLED"):
+        libq_tool = create_libq_search_tool()
+        for _, v in agent2tools.items():
+            v.append(libq_tool)
+    
     base_middlewares = create_base_middlewares(lm_client)
     inject_reports_middleware = create_inject_reports_middleware(resolved_path)
-
-    debugger_agent = create_agent(
-        model=lm_client,
-        tools=[read_tool, libq_tool],
-        system_prompt=DEBUGGER_SYSTEM_PROMPT,
-        middleware=[
-            *base_middlewares,
-            _UnrestrictedFileSearchMiddleware(
-                root_path=str(resolved_path),
-                use_ripgrep=True,
-            ),
-        ],
-    )
-
-    tool_error_middleware = create_tool_error_middleware(debugger_agent)
+         
+    agent2middleware= {
+        "debugger": [*base_middlewares, 
+                     _UnrestrictedFileSearchMiddleware(
+                        root_path=str(resolved_path),
+                        use_ripgrep=True,
+                    )],
+        "analyst": [*base_middlewares,
+                    inject_reports_middleware,
+                    create_skip_agent_if_report_exists_middleware(report_path_dict["analyst"]),
+                    create_report_required_middleware(report_path_dict["analyst"], name="analyst")],
+        "researcher": [*base_middlewares,
+                       inject_reports_middleware,
+                       create_skip_agent_if_report_exists_middleware(report_path_dict["researcher"]),
+                       create_report_required_middleware(report_path_dict["researcher"], name="researcher")],
+        "manager": [*base_middlewares,
+                          inject_reports_middleware,
+                          create_skip_agent_if_report_exists_middleware(report_path_dict["manager"]),
+                          create_report_required_middleware(report_path_dict["manager"], name="manager")],
+        "coder": [*base_middlewares,
+                  inject_reports_middleware,
+                  create_solution_required_middleware(solution_path=solution_path, name="coder")],
+        "presenter": [*base_middlewares,
+                      create_report_required_middleware(report_path_dict["presenter"], name="presenter")]
+    }
+    
+    if not env_bool("DEBUGGER_DISABLED"):
+        debugger_agent = create_agent(
+            model=lm_client,
+            tools=agent2tools["debugger"],
+            system_prompt=DEBUGGER_SYSTEM_PROMPT,
+            middleware=agent2middleware["debugger"]
+        )
+        tool_error_middleware = create_tool_error_middleware(debugger_agent)
+    else:
+        tool_error_middleware = create_tool_error_middleware()
+    for a, m in agent2middleware.items():
+        if a != "debugger":
+            m.append(tool_error_middleware)
 
     analyst_agent = create_agent(
         model=lm_client,
-        tools=[shell_tool, python_tool, libq_tool, create_submit_report_tool(report_path=report_path_dict["analyst"])],
+        tools=agent2tools["analyst"],
         system_prompt=ANALYST_SYSTEM_PROMPT,
-        middleware=[
-            *base_middlewares,
-            inject_reports_middleware,
-            tool_error_middleware,
-            create_skip_agent_if_report_exists_middleware(report_path_dict["analyst"]),
-            create_report_required_middleware(report_path_dict["analyst"], name="analyst"),
-        ],
+        middleware=agent2middleware["analyst"]
     )
 
     researcher_agent = create_agent(
         model=lm_client,
-        tools=[libq_tool, create_submit_report_tool(report_path=report_path_dict["researcher"])],
+        tools=agent2tools["researcher"],
         system_prompt=RESEARCHER_SYSTEM_PROMPT,
-        middleware=[
-            *base_middlewares,
-            inject_reports_middleware,
-            tool_error_middleware,
-            create_skip_agent_if_report_exists_middleware(report_path_dict["researcher"]),
-            create_report_required_middleware(report_path_dict["researcher"], name="researcher"),
-        ],
+        middleware=agent2middleware["researcher"],
     )
 
     manager_agent = create_agent(
         model=lm_client,
-        tools=[libq_tool, create_submit_report_tool(report_path=report_path_dict["manager"])],
+        tools=agent2tools["manager"],
         system_prompt=MANAGER_SYSTEM_PROMPT,
-        middleware=[
-            *base_middlewares,
-            inject_reports_middleware,
-            tool_error_middleware,
-            create_skip_agent_if_report_exists_middleware(report_path_dict["manager"]),
-            create_report_required_middleware(report_path_dict["manager"], name="manager"),
-        ],
+        middleware=agent2middleware["manager"],
     )
-    
-    solution_path = resolved_path / "solution.py"
 
     coder_agent = create_agent(
         model=lm_client,
-        tools=[shell_tool, python_tool, libq_tool, create_submit_solution_tool(solution_path=solution_path)],
+        tools=agent2tools["coder"],
         system_prompt=CODER_SYSTEM_PROMPT,
-        middleware=[*base_middlewares, 
-                    tool_error_middleware, 
-                    inject_reports_middleware,
-                    create_solution_required_middleware(solution_path=solution_path, name="coder")],
+        middleware=agent2middleware["coder"],
     )
 
     presenter_agent = create_agent(
         model=lm_client,
-        tools=[
-            shell_tool,
-            create_submit_report_tool(report_path=report_path_dict["presenter"]),
-        ],
+        tools=agent2tools["presenter"],
         system_prompt=PRESENTER_SYSTEM_PROMPT,
-        middleware=[
-            *base_middlewares,
-            tool_error_middleware,
-            create_report_required_middleware(report_path_dict["presenter"], name="presenter"),
-        ],
+        middleware=agent2middleware["presenter"]
     )
 
     async def pipeline(state: PipelineState):
         await analyst_agent.ainvoke({"messages": [{"role": "user", "content": f"{state['task']}"}]})
-        await researcher_agent.ainvoke({"messages": [{"role": "user", "content": f"{state['task']}"}]})
+        if not env_bool("RESEARCH_DISABLED"):
+            await researcher_agent.ainvoke({"messages": [{"role": "user", "content": f"{state['task']}"}]})
         await manager_agent.ainvoke({"messages": [{"role": "user", "content": f"{state['task']}"}]})
         coder_reponse = await coder_agent.ainvoke({"messages": [{"role": "user", "content": f"{state['task']}"}]})
         
